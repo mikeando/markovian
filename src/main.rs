@@ -1,10 +1,10 @@
+use log::{debug, error, info, log_enabled, trace, warn};
 use rand::Rng;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
-use structopt::StructOpt;
 use std::path::PathBuf;
-use log::{debug, error, warn, info, trace, log_enabled};
+use structopt::StructOpt;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 enum Symbol {
@@ -62,11 +62,11 @@ impl MarkovModel {
     fn add(&mut self, s: &[Symbol]) {
         //println!("{:?} => {:?}", s , ss);
         use std::iter;
-        let ss:Vec<Symbol> = iter::repeat(Symbol::Start)
-                .take(self.order)
-                .chain(s.iter().cloned())
-                .chain(iter::repeat(Symbol::End).take(1))
-                .collect();
+        let ss: Vec<Symbol> = iter::repeat(Symbol::Start)
+            .take(self.order)
+            .chain(s.iter().cloned())
+            .chain(iter::repeat(Symbol::End).take(1))
+            .collect();
 
         for w in ss.windows(self.order + 1) {
             for cl in 0..self.order {
@@ -92,7 +92,7 @@ impl MarkovModel {
         unreachable!();
     }
 
-    fn sample<R: Rng>(&self, rng: &mut R, print_sep:bool) -> String {
+    fn sample<R: Rng>(&self, rng: &mut R, print_sep: bool) -> String {
         let mut context = self.initial_context();
         let L = context.len();
         let mut symbols = vec![];
@@ -105,7 +105,7 @@ impl MarkovModel {
             }
             symbols.push(s.clone());
             context.rotate_left(1);
-                    //println!("Emitting {:?}", c);
+            //println!("Emitting {:?}", c);
             context[L - 1] = s;
         }
         let symbol_refs: Vec<_> = symbols.iter().collect();
@@ -113,36 +113,39 @@ impl MarkovModel {
     }
 }
 
-fn raw_symbolify_word(s :&str) -> Vec<Symbol> {
+fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
     s.as_bytes().iter().cloned().map(Symbol::Char).collect()
 }
 
-fn reduce_symbols( v:Vec<Symbol>, key:(&Symbol, &Symbol), value:&Symbol) -> Vec<Symbol> {
+fn reduce_symbols(v: Vec<Symbol>, key: (&Symbol, &Symbol), value: &Symbol) -> Vec<Symbol> {
     let mut result: Vec<Symbol> = vec![];
     let mut skip = false;
-    for i in 0.. v.len()-1 {
+    for i in 0..v.len() - 1 {
         if skip {
             skip = false;
-            continue
+            continue;
         }
-        if (&v[i] == key.0) && (&v[i+1] == key.1) {
+        if (&v[i] == key.0) && (&v[i + 1] == key.1) {
             result.push(value.clone());
             skip = true;
         } else {
             result.push(v[i].clone());
         }
     }
-    if ! skip {
-        v.last().iter().cloned().for_each(|s:&Symbol| result.push(s.clone()));
+    if !skip {
+        v.last()
+            .iter()
+            .cloned()
+            .for_each(|s: &Symbol| result.push(s.clone()));
     }
     result
 }
 
-fn symbols_to_vec(v:&[&Symbol], insert_sep:bool) -> Vec<u8> {
-    let mut result:Vec<u8> = vec![];
+fn symbols_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
+    let mut result: Vec<u8> = vec![];
     let mut is_start = true;
     for s in v {
-        if insert_sep { 
+        if insert_sep {
             if is_start {
                 is_start = false
             } else {
@@ -150,21 +153,28 @@ fn symbols_to_vec(v:&[&Symbol], insert_sep:bool) -> Vec<u8> {
             }
         }
         match s {
-            Symbol::Start => { result.push(b'^'); },
-            Symbol::End => { result.push(b'$'); },
-            Symbol::Char(c) => { result.push(*c); },
-            Symbol::Compound(cs) => { result.append(&mut cs.clone()); }
+            Symbol::Start => {
+                result.push(b'^');
+            }
+            Symbol::End => {
+                result.push(b'$');
+            }
+            Symbol::Char(c) => {
+                result.push(*c);
+            }
+            Symbol::Compound(cs) => {
+                result.append(&mut cs.clone());
+            }
         }
     }
     result
 }
 
-fn symbols_to_word(v:&[&Symbol], insert_sep:bool) -> String {
+fn symbols_to_word(v: &[&Symbol], insert_sep: bool) -> String {
     String::from_utf8(symbols_to_vec(v, insert_sep)).unwrap()
 }
 
-
-fn get_symbol_counts(input_names:&[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {
+fn get_symbol_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {
     let mut symbol_counts: BTreeMap<Symbol, usize> = BTreeMap::new();
     for name in input_names {
         for w in name {
@@ -174,21 +184,25 @@ fn get_symbol_counts(input_names:&[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {
     symbol_counts
 }
 
-fn get_bigram_counts(input_names:&[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol), usize> {
+fn get_bigram_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol), usize> {
     let mut bigram_counts: BTreeMap<(Symbol, Symbol), usize> = BTreeMap::new();
     for name in input_names {
         for w in name.windows(2) {
-            *bigram_counts.entry((w[0].clone(), w[1].clone())).or_insert(0) += 1;
+            *bigram_counts
+                .entry((w[0].clone(), w[1].clone()))
+                .or_insert(0) += 1;
         }
     }
     bigram_counts
 }
 
-fn get_trigram_counts(input_names:&[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol, Symbol), usize> {
+fn get_trigram_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol, Symbol), usize> {
     let mut trigram_counts: BTreeMap<(Symbol, Symbol, Symbol), usize> = BTreeMap::new();
     for name in input_names {
         for w in name.windows(3) {
-            *trigram_counts.entry((w[0].clone(), w[1].clone(), w[2].clone())).or_insert(0) += 1;
+            *trigram_counts
+                .entry((w[0].clone(), w[1].clone(), w[2].clone()))
+                .or_insert(0) += 1;
         }
     }
     trigram_counts
@@ -197,15 +211,15 @@ fn get_trigram_counts(input_names:&[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol, S
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct ProductionRuleId(u64);
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 struct ProductionRuleCompound {
-    values:Vec<(u32, Vec<ProductionRuleId>)>
+    values: Vec<(u32, Vec<ProductionRuleId>)>,
 }
 
 impl ProductionRuleCompound {
-    pub fn evaluate<R: Rng>(&self, r:&mut R) -> Vec<ProductionRuleId> {
+    pub fn evaluate<R: Rng>(&self, r: &mut R) -> Vec<ProductionRuleId> {
         let sum_w: u32 = self.values.iter().map(|v| v.0).sum();
-        let mut v:u32 = r.gen_range(0, sum_w);
+        let mut v: u32 = r.gen_range(0, sum_w);
         for r in &self.values {
             if r.0 < v {
                 //TODO: Would be nice to avoid this copy.
@@ -217,19 +231,19 @@ impl ProductionRuleCompound {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 enum ProductionRule {
     Terminal(u8),
     Compound(ProductionRuleCompound),
 }
 
 struct ProductionRuleSet {
-    rules:BTreeMap<ProductionRuleId, ProductionRule>
+    rules: BTreeMap<ProductionRuleId, ProductionRule>,
 }
 
-fn reduce<R: Rng>(id:ProductionRuleId, rules:&ProductionRuleSet, r:&mut R) -> Vec<u8> {
-    let mut pending:VecDeque<ProductionRuleId> = VecDeque::new();
-    let mut result:Vec<u8> = vec![];
+fn reduce<R: Rng>(id: ProductionRuleId, rules: &ProductionRuleSet, r: &mut R) -> Vec<u8> {
+    let mut pending: VecDeque<ProductionRuleId> = VecDeque::new();
+    let mut result: Vec<u8> = vec![];
     pending.push_front(id);
     while !pending.is_empty() {
         let next_id = pending.pop_front().unwrap();
@@ -237,7 +251,7 @@ fn reduce<R: Rng>(id:ProductionRuleId, rules:&ProductionRuleSet, r:&mut R) -> Ve
         match rule {
             ProductionRule::Terminal(v) => {
                 result.push(*v);
-            },
+            }
             ProductionRule::Compound(compound_rule) => {
                 let mut v = compound_rule.evaluate(r);
                 v.reverse();
@@ -257,27 +271,22 @@ fn test_productions() {
     let T2 = ProductionRule::Terminal(b'B');
 
     let P1_id = ProductionRuleId(0);
-    let P1 = ProductionRule::Compound(
-        ProductionRuleCompound{
-            values:vec![
-                (1, vec![T1_id]),
-                (1, vec![T2_id]),
-                (1, vec![P1_id,P1_id]),
-            ]
-        }
-    );
+    let P1 = ProductionRule::Compound(ProductionRuleCompound {
+        values: vec![(1, vec![T1_id]), (1, vec![T2_id]), (1, vec![P1_id, P1_id])],
+    });
 
     let mut rules_map = BTreeMap::new();
     rules_map.insert(T1_id, T1);
     rules_map.insert(T2_id, T2);
     rules_map.insert(P1_id, P1);
 
-    let rules = ProductionRuleSet{
-        rules:rules_map
-    };
+    let rules = ProductionRuleSet { rules: rules_map };
     let mut rng = rand::thread_rng();
     for i in 0..10 {
-        println!("P1=>{:?}", String::from_utf8(reduce(P1_id, &rules, &mut rng)));
+        println!(
+            "P1=>{:?}",
+            String::from_utf8(reduce(P1_id, &rules, &mut rng))
+        );
     }
 }
 
@@ -289,11 +298,11 @@ struct Opt {
     name_file: PathBuf,
 
     /// Number of bigrams to reduce to their own symbols
-    #[structopt(short, long, default_value="-1")]
+    #[structopt(short, long, default_value = "-1")]
     bigram_reduce_count: i32,
 
     /// Verbosity level
-    #[structopt(short, long, default_value="0")]
+    #[structopt(short, long, default_value = "0")]
     verbose: i32,
 
     /// Run productions test
@@ -301,7 +310,7 @@ struct Opt {
     run_productions_test: bool,
 }
 
-fn setup_logging(verbose:i32) {
+fn setup_logging(verbose: i32) {
     use fern::colors::{Color, ColoredLevelConfig};
 
     let level = match verbose {
@@ -330,14 +339,15 @@ fn setup_logging(verbose:i32) {
         .chain(std::io::stdout())
         //.chain(fern::log_file("output.log").unwrap())
         // Apply globally
-        .apply().unwrap();
+        .apply()
+        .unwrap();
 
     // and log using log crate macros!
     info!("helllo, world!");
 }
 
-fn print_model_summary(model:&MarkovModel) {
-    use log::Level::{Info};
+fn print_model_summary(model: &MarkovModel) {
+    use log::Level::Info;
     info!("total contexts = {:?}", model.contexts.len());
     let mut h: BTreeSet<Symbol> = BTreeSet::new();
     for k in model.contexts.keys() {
@@ -354,14 +364,14 @@ fn print_model_summary(model:&MarkovModel) {
     }
 }
 
-//TODO: At the moment this just prints the 
+//TODO: At the moment this just prints the
 //      cases we could reduce - it doesn't actually reduce them
-fn combine_rare_symbols(input_names:Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
+fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
     use log::Level::Info;
     // Hunt for symbols that are only ever used before another
     // These can be reduced to a combined symbol cheaply
     let bigram_counts = get_bigram_counts(&input_names);
-    let mut symbol_to_followers : BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
+    let mut symbol_to_followers: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
     for s in bigram_counts.keys() {
         symbol_to_followers
             .entry(s.0.clone())
@@ -369,20 +379,20 @@ fn combine_rare_symbols(input_names:Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             .insert(s.1.clone());
     }
     info!("====");
-    for (k,ss) in &symbol_to_followers {
+    for (k, ss) in &symbol_to_followers {
         if ss.len() > 3 {
             debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
         } else if log_enabled!(Info) {
-                let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
-                info!("{} => {:?}", symbols_to_word(&[k], false), sss);
+            let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
+            info!("{} => {:?}", symbols_to_word(&[k], false), sss);
         }
-    } 
+    }
     //println!("{:?}",symbol_to_followers );
 
     // Hunt for symbols that are only ever used after another
     // These can be reduced to a combined symbol cheaply
     let bigram_counts = get_bigram_counts(&input_names);
-    let mut symbol_to_prefix : BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
+    let mut symbol_to_prefix: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
     for s in bigram_counts.keys() {
         symbol_to_prefix
             .entry(s.1.clone())
@@ -390,11 +400,11 @@ fn combine_rare_symbols(input_names:Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             .insert(s.0.clone());
     }
     info!("====");
-    for (k,ss) in &symbol_to_prefix {
+    for (k, ss) in &symbol_to_prefix {
         if ss.len() > 3 {
             debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
         } else if log_enabled!(Info) {
-            let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
+            let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
             info!("{:?} => {}", sss, symbols_to_word(&[k], false));
         }
     }
@@ -402,7 +412,7 @@ fn combine_rare_symbols(input_names:Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
 }
 
 fn main() {
-    use log::Level::{Info,Debug};
+    use log::Level::{Debug, Info};
 
     let opt = Opt::from_args();
     println!("{:?}", opt);
@@ -412,7 +422,7 @@ fn main() {
     }
 
     let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
-    let verbose:i32 = opt.verbose;
+    let verbose: i32 = opt.verbose;
     setup_logging(verbose);
     let order = 3;
     let print_sep = verbose >= 1;
@@ -448,7 +458,11 @@ fn main() {
     if log_enabled!(Info) {
         for x in &bigram_counts[0..10] {
             //let v = [(x.0).0, (x.0).1];
-            info!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1], false), x.1);
+            info!(
+                "{:?} {:?}",
+                symbols_to_word(&[&(x.0).0, &(x.0).1], false),
+                x.1
+            );
         }
     }
 
@@ -459,7 +473,11 @@ fn main() {
     trigram_counts.reverse();
     if log_enabled!(Info) {
         for x in &trigram_counts[0..10] {
-            info!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false), x.1);
+            info!(
+                "{:?} {:?}",
+                symbols_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false),
+                x.1
+            );
         }
     }
 
@@ -467,12 +485,16 @@ fn main() {
     if opt.bigram_reduce_count > 0 {
         let mut bigram_counts = bigram_counts;
         for _i in 0..opt.bigram_reduce_count {
-            let most_common_bigram=bigram_counts[0].0.clone();
+            let most_common_bigram = bigram_counts[0].0.clone();
             info!("Removing bigram {:?}", most_common_bigram);
-            let s = Symbol::Compound(symbols_to_vec(&[&most_common_bigram.0, &most_common_bigram.1], false));
-            input_names = input_names.into_iter().map(
-                |v| reduce_symbols(v, (&most_common_bigram.0, &most_common_bigram.1), &s)
-            ).collect();
+            let s = Symbol::Compound(symbols_to_vec(
+                &[&most_common_bigram.0, &most_common_bigram.1],
+                false,
+            ));
+            input_names = input_names
+                .into_iter()
+                .map(|v| reduce_symbols(v, (&most_common_bigram.0, &most_common_bigram.1), &s))
+                .collect();
             let bigram_counts_map = get_bigram_counts(&input_names);
             bigram_counts = bigram_counts_map.into_iter().collect();
             bigram_counts.sort_by_key(|e| e.1);
@@ -480,7 +502,11 @@ fn main() {
             if log_enabled!(Debug) {
                 debug!("--------");
                 for x in &bigram_counts[0..10] {
-                    debug!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1], false), x.1);
+                    debug!(
+                        "{:?} {:?}",
+                        symbols_to_word(&[&(x.0).0, &(x.0).1], false),
+                        x.1
+                    );
                 }
             }
         }

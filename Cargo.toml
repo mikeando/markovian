@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 rand = "0.7.2"
 structopt = "0.3"
+fern = {version="0.5", features=["colored"]}
+log = "0.4"

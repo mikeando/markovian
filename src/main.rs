@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use structopt::StructOpt;
 use std::path::PathBuf;
+use log::{debug, error, warn, info, trace};
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 enum Symbol {
@@ -300,7 +301,45 @@ struct Opt {
     run_productions_test: bool,
 }
 
+fn setup_logging(verbose:i32) {
+    use fern::colors::{Color, ColoredLevelConfig};
+
+    let level = match verbose {
+        v if v <= 0 => log::LevelFilter::Warn,
+        1 => log::LevelFilter::Info,
+        _ => log::LevelFilter::Trace,
+    };
+    // With fern, we can:
+
+    // Configure logger at runtime
+    fern::Dispatch::new()
+        // Perform allocation-free log formatting
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                //"{}[{}][{}] {}",
+                "[{}][{}] {}",
+                //chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        // Add blanket level filter -
+        .level(level)
+        // Output to stdout, files, and other Dispatch configurations
+        .chain(std::io::stdout())
+        //.chain(fern::log_file("output.log").unwrap())
+        // Apply globally
+        .apply().unwrap();
+
+    // and log using log crate macros!
+    info!("helllo, world!");
+}
+
 fn main() {
+    use log::log_enabled;
+    use log::Level::{Info,Debug};
+
     let opt = Opt::from_args();
     println!("{:?}", opt);
     if opt.run_productions_test {
@@ -310,9 +349,11 @@ fn main() {
 
     let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
     let verbose:i32 = opt.verbose;
+    setup_logging(verbose);
     let order = 3;
+    let print_sep = verbose >= 1;
 
-    if verbose >= 1 { println!("Loading word list..."); }
+    info!("Loading word list...");
 
     let input_names: Vec<Vec<Symbol>> = input_names_raw
         .lines()
@@ -322,17 +363,16 @@ fn main() {
         .collect();
     //println!("{:?}", symbolify_word(input_names[0], order));
 
-
-    if verbose >= 1 { println!("{:?} raw entries", input_names_raw.lines().count()); }
-    if verbose >= 1 { println!("{:?} entries", input_names.len()); }
+    info!("{:?} raw entries", input_names_raw.lines().count());
+    info!("{:?} entries", input_names.len());
 
     let symbol_counts = get_symbol_counts(&input_names);
     let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
     symbol_counts.sort_by_key(|e| e.1);
     symbol_counts.reverse();
-    if verbose >= 1 {
+    if log_enabled!(Info) {
         for x in &symbol_counts {
-            println!("{:?} {:?}", symbols_to_word(&[&x.0], false), x.1);
+            info!("{:?} {:?}", symbols_to_word(&[&x.0], false), x.1);
         }
     }
 
@@ -341,10 +381,10 @@ fn main() {
     let mut bigram_counts: Vec<_> = bigram_counts.into_iter().collect();
     bigram_counts.sort_by_key(|e| e.1);
     bigram_counts.reverse();
-    if verbose >= 1 {
+    if log_enabled!(Info) {
         for x in &bigram_counts[0..10] {
             //let v = [(x.0).0, (x.0).1];
-            println!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1], false), x.1);
+            info!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1], false), x.1);
         }
     }
 
@@ -353,9 +393,9 @@ fn main() {
     let mut trigram_counts: Vec<_> = trigram_counts.into_iter().collect();
     trigram_counts.sort_by_key(|e| e.1);
     trigram_counts.reverse();
-    if verbose >= 1 {
+    if log_enabled!(Info) {
         for x in &trigram_counts[0..10] {
-            println!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false), x.1);
+            info!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false), x.1);
         }
     }
 
@@ -364,9 +404,7 @@ fn main() {
         let mut bigram_counts = bigram_counts;
         for _i in 0..opt.bigram_reduce_count {
             let most_common_bigram=bigram_counts[0].0.clone();
-            if verbose >= 1 {
-                println!("Removing bigram {:?}", most_common_bigram);
-            }
+            info!("Removing bigram {:?}", most_common_bigram);
             let s = Symbol::Compound(symbols_to_vec(&[&most_common_bigram.0, &most_common_bigram.1], false));
             input_names = input_names.into_iter().map(
                 |v| reduce_symbols(v, (&most_common_bigram.0, &most_common_bigram.1), &s)
@@ -375,10 +413,10 @@ fn main() {
             bigram_counts = bigram_counts_map.into_iter().collect();
             bigram_counts.sort_by_key(|e| e.1);
             bigram_counts.reverse();
-            if verbose >= 3 {
-                println!("--------");
+            if log_enabled!(Debug) {
+                debug!("--------");
                 for x in &bigram_counts[0..10] {
-                    println!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1], false), x.1);
+                    debug!("{:?} {:?}", symbols_to_word(&[&(x.0).0, &(x.0).1], false), x.1);
                 }
             }
         }
@@ -395,18 +433,14 @@ fn main() {
             .or_insert_with(BTreeSet::new)
             .insert(s.1.clone());
     }
-    if verbose >= 1 {
-        println!("====");
-    }
+    info!("====");
     for (k,ss) in &symbol_to_followers {
         if ss.len() > 3 {
-            if verbose >= 1 {
-                println!("{} => {}", symbols_to_word(&[k], false), ss.len());
-            }
+            debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
         } else {
-            if verbose >= 3 {
+            if log_enabled!(Info) {
                 let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
-                println!("{} => {:?}", symbols_to_word(&[k], false), sss);
+                info!("{} => {:?}", symbols_to_word(&[k], false), sss);
             }
         }
     } 
@@ -422,53 +456,46 @@ fn main() {
             .or_insert_with(BTreeSet::new)
             .insert(s.0.clone());
     }
-    if verbose >= 1 {
-        println!("====");
-    }
+    info!("====");
     for (k,ss) in &symbol_to_prefix {
         if ss.len() > 3 {
-            if verbose >= 1 {
-                println!("{} => {}", ss.len(), symbols_to_word(&[k], false));
-            }
+            debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
         } else {
-            if verbose >=3 {
+            if log_enabled!(Info) {
                 let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
-                println!("{:?} => {}", sss, symbols_to_word(&[k], false));
+                info!("{:?} => {}", sss, symbols_to_word(&[k], false));
             }
         }
     } 
-    //println!("{:?}",symbol_to_followers );
 
     let mut model = MarkovModel::new(order);
 
-    if verbose >=1 { println!("Populating model..."); }
+    info!("Populating model...");
     for name in &input_names {
         //println!("Adding {:?}", name);
         model.add(name);
     }
 
-    if verbose >= 1 {println!("total contexts = {:?}", model.contexts.len()); }
+    info!("total contexts = {:?}", model.contexts.len());
     let mut h: BTreeSet<Symbol> = BTreeSet::new();
     for k in model.contexts.keys() {
         for s in k {
             h.insert(s.clone());
         }
     }
-    if verbose >= 1 {
-        println!("total unique symbols = {:?}", h.len());
+    if log_enabled!(Info) {
+        info!("total unique symbols = {:?}", h.len());
         for s in &h {
-            print!("{:?}|", symbols_to_word(&[s], false));
+            info!("{:?}|", symbols_to_word(&[s], false));
         }
-        println!();
+        info!("");
     }
 
     let mut rng = rand::thread_rng();
-    if verbose >= 1 {
-       println!("Sampling model...");
-    }
+    info!("Sampling model...");
 
     for _ in 0..10 {
-        if verbose >=1 {
+        if print_sep {
             println!("{:?}", model.sample(&mut rng, true));
         } else {
             println!("{}", model.sample(&mut rng, false));

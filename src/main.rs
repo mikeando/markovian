@@ -411,8 +411,53 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
     input_names
 }
 
+fn get_sorted_bigram_counts(input_names: &Vec<Vec<Symbol>>) -> Vec<((Symbol, Symbol), usize)> {
+    let bigram_counts_map = get_bigram_counts(&input_names);
+    let mut bigram_counts: Vec<_> = bigram_counts_map.into_iter().collect();
+    bigram_counts.sort_by_key(|e| e.1);
+    bigram_counts.reverse();
+    bigram_counts
+}
+
+fn convert_common_bigrams_to_symbols(
+    input_names: Vec<Vec<Symbol>>,
+    bigram_reduce_count: i32,
+) -> Vec<Vec<Symbol>> {
+    use log::Level::Debug;
+    if bigram_reduce_count <= 0 {
+        return input_names;
+    }
+
+    let mut input_names = input_names;
+    for _i in 0..bigram_reduce_count {
+        let bigram_counts = get_sorted_bigram_counts(&input_names);
+        let most_common_bigram = bigram_counts[0].0.clone();
+        info!("Removing bigram {:?}", most_common_bigram);
+        let s = Symbol::Compound(symbols_to_vec(
+            &[&most_common_bigram.0, &most_common_bigram.1],
+            false,
+        ));
+        input_names = input_names
+            .into_iter()
+            .map(|v| reduce_symbols(v, (&most_common_bigram.0, &most_common_bigram.1), &s))
+            .collect();
+        if log_enabled!(Debug) {
+            let bigram_counts = get_sorted_bigram_counts(&input_names);
+            debug!("--------");
+            for x in &bigram_counts[0..10] {
+                debug!(
+                    "{:?} {:?}",
+                    symbols_to_word(&[&(x.0).0, &(x.0).1], false),
+                    x.1
+                );
+            }
+        }
+    }
+    input_names
+}
+
 fn main() {
-    use log::Level::{Debug, Info};
+    use log::Level::Info;
 
     let opt = Opt::from_args();
     println!("{:?}", opt);
@@ -481,39 +526,8 @@ fn main() {
         }
     }
 
-    let mut input_names = input_names;
-    if opt.bigram_reduce_count > 0 {
-        let mut bigram_counts = bigram_counts;
-        for _i in 0..opt.bigram_reduce_count {
-            let most_common_bigram = bigram_counts[0].0.clone();
-            info!("Removing bigram {:?}", most_common_bigram);
-            let s = Symbol::Compound(symbols_to_vec(
-                &[&most_common_bigram.0, &most_common_bigram.1],
-                false,
-            ));
-            input_names = input_names
-                .into_iter()
-                .map(|v| reduce_symbols(v, (&most_common_bigram.0, &most_common_bigram.1), &s))
-                .collect();
-            let bigram_counts_map = get_bigram_counts(&input_names);
-            bigram_counts = bigram_counts_map.into_iter().collect();
-            bigram_counts.sort_by_key(|e| e.1);
-            bigram_counts.reverse();
-            if log_enabled!(Debug) {
-                debug!("--------");
-                for x in &bigram_counts[0..10] {
-                    debug!(
-                        "{:?} {:?}",
-                        symbols_to_word(&[&(x.0).0, &(x.0).1], false),
-                        x.1
-                    );
-                }
-            }
-        }
-    }
-
+    let input_names = convert_common_bigrams_to_symbols(input_names, opt.bigram_reduce_count);
     let input_names = combine_rare_symbols(input_names);
-
     let mut model = MarkovModel::new(order);
 
     info!("Populating model...");

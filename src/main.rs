@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use structopt::StructOpt;
 use std::path::PathBuf;
-use log::{debug, error, warn, info, trace};
+use log::{debug, error, warn, info, trace, log_enabled};
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 enum Symbol {
@@ -336,8 +336,72 @@ fn setup_logging(verbose:i32) {
     info!("helllo, world!");
 }
 
+fn print_model_summary(model:&MarkovModel) {
+    use log::Level::{Info};
+    info!("total contexts = {:?}", model.contexts.len());
+    let mut h: BTreeSet<Symbol> = BTreeSet::new();
+    for k in model.contexts.keys() {
+        for s in k {
+            h.insert(s.clone());
+        }
+    }
+    if log_enabled!(Info) {
+        info!("total unique symbols = {:?}", h.len());
+        for s in &h {
+            info!("{:?}|", symbols_to_word(&[s], false));
+        }
+        info!("");
+    }
+}
+
+//TODO: At the moment this just prints the 
+//      cases we could reduce - it doesn't actually reduce them
+fn combine_rare_symbols(input_names:Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
+    use log::Level::Info;
+    // Hunt for symbols that are only ever used before another
+    // These can be reduced to a combined symbol cheaply
+    let bigram_counts = get_bigram_counts(&input_names);
+    let mut symbol_to_followers : BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
+    for s in bigram_counts.keys() {
+        symbol_to_followers
+            .entry(s.0.clone())
+            .or_insert_with(BTreeSet::new)
+            .insert(s.1.clone());
+    }
+    info!("====");
+    for (k,ss) in &symbol_to_followers {
+        if ss.len() > 3 {
+            debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
+        } else if log_enabled!(Info) {
+                let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
+                info!("{} => {:?}", symbols_to_word(&[k], false), sss);
+        }
+    } 
+    //println!("{:?}",symbol_to_followers );
+
+    // Hunt for symbols that are only ever used after another
+    // These can be reduced to a combined symbol cheaply
+    let bigram_counts = get_bigram_counts(&input_names);
+    let mut symbol_to_prefix : BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
+    for s in bigram_counts.keys() {
+        symbol_to_prefix
+            .entry(s.1.clone())
+            .or_insert_with(BTreeSet::new)
+            .insert(s.0.clone());
+    }
+    info!("====");
+    for (k,ss) in &symbol_to_prefix {
+        if ss.len() > 3 {
+            debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
+        } else if log_enabled!(Info) {
+            let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
+            info!("{:?} => {}", sss, symbols_to_word(&[k], false));
+        }
+    }
+    input_names
+}
+
 fn main() {
-    use log::log_enabled;
     use log::Level::{Info,Debug};
 
     let opt = Opt::from_args();
@@ -421,75 +485,17 @@ fn main() {
             }
         }
     }
-    let input_names = input_names;
 
-    // Hunt for symbols that are only ever used before another
-    // These can be reduced to a combined symbol cheaply
-    let bigram_counts = get_bigram_counts(&input_names);
-    let mut symbol_to_followers : BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
-    for s in bigram_counts.keys() {
-        symbol_to_followers
-            .entry(s.0.clone())
-            .or_insert_with(BTreeSet::new)
-            .insert(s.1.clone());
-    }
-    info!("====");
-    for (k,ss) in &symbol_to_followers {
-        if ss.len() > 3 {
-            debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
-        } else {
-            if log_enabled!(Info) {
-                let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
-                info!("{} => {:?}", symbols_to_word(&[k], false), sss);
-            }
-        }
-    } 
-    //println!("{:?}",symbol_to_followers );
-
-    // Hunt for symbols that are only ever used after another
-    // These can be reduced to a combined symbol cheaply
-    let bigram_counts = get_bigram_counts(&input_names);
-    let mut symbol_to_prefix : BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
-    for s in bigram_counts.keys() {
-        symbol_to_prefix
-            .entry(s.1.clone())
-            .or_insert_with(BTreeSet::new)
-            .insert(s.0.clone());
-    }
-    info!("====");
-    for (k,ss) in &symbol_to_prefix {
-        if ss.len() > 3 {
-            debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
-        } else {
-            if log_enabled!(Info) {
-                let sss: Vec<String> = ss.iter().map( |k| symbols_to_word(&[k], false)).collect();
-                info!("{:?} => {}", sss, symbols_to_word(&[k], false));
-            }
-        }
-    } 
+    let input_names = combine_rare_symbols(input_names);
 
     let mut model = MarkovModel::new(order);
 
     info!("Populating model...");
     for name in &input_names {
-        //println!("Adding {:?}", name);
         model.add(name);
     }
 
-    info!("total contexts = {:?}", model.contexts.len());
-    let mut h: BTreeSet<Symbol> = BTreeSet::new();
-    for k in model.contexts.keys() {
-        for s in k {
-            h.insert(s.clone());
-        }
-    }
-    if log_enabled!(Info) {
-        info!("total unique symbols = {:?}", h.len());
-        for s in &h {
-            info!("{:?}|", symbols_to_word(&[s], false));
-        }
-        info!("");
-    }
+    print_model_summary(&model);
 
     let mut rng = rand::thread_rng();
     info!("Sampling model...");

@@ -295,7 +295,7 @@ fn test_productions() {
 struct Opt {
     /// Input file
     #[structopt(short, long, parse(from_os_str))]
-    name_file: PathBuf,
+    name_file: Vec<PathBuf>,
 
     /// Number of bigrams to reduce to their own symbols
     #[structopt(short, long, default_value = "-1")]
@@ -519,6 +519,7 @@ fn convert_common_bigrams_to_symbols(
 
 fn main() {
     use log::Level::Info;
+    use std::cmp::min;
 
     let opt = Opt::from_args();
     println!("{:?}", opt);
@@ -527,7 +528,22 @@ fn main() {
         return;
     }
 
-    let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
+    let input_names_raw: Vec<String> = 
+        opt.name_file.iter()
+            .map( 
+                |n| { 
+                    let v:Vec<_> = std::fs::read_to_string(n)
+                        .unwrap()
+                        .lines()
+                        .map(|n| n.trim().to_string())
+                        .filter( |s| s.len() >=3)
+                        .collect();
+                    v
+                 } )
+            .flatten()
+            .collect();
+
+    //let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
     let verbose: i32 = opt.verbose;
     setup_logging(verbose);
     let order = 3;
@@ -536,14 +552,12 @@ fn main() {
     info!("Loading word list...");
 
     let input_names: Vec<Vec<Symbol>> = input_names_raw
-        .lines()
-        .map(|s| s.trim())
-        .filter(|s| s.len() >= 3)
+        .iter()
         .map(|s| raw_symbolify_word(s))
         .collect();
     //println!("{:?}", symbolify_word(input_names[0], order));
 
-    info!("{:?} raw entries", input_names_raw.lines().count());
+    info!("{:?} raw entries", input_names_raw.len());
     info!("{:?} entries", input_names.len());
 
     let symbol_counts = get_symbol_counts(&input_names);
@@ -562,7 +576,7 @@ fn main() {
     bigram_counts.sort_by_key(|e| e.1);
     bigram_counts.reverse();
     if log_enabled!(Info) {
-        for x in &bigram_counts[0..10] {
+        for x in &bigram_counts[0..min(10, bigram_counts.len())] {
             //let v = [(x.0).0, (x.0).1];
             info!(
                 "{:?} {:?}",
@@ -578,7 +592,7 @@ fn main() {
     trigram_counts.sort_by_key(|e| e.1);
     trigram_counts.reverse();
     if log_enabled!(Info) {
-        for x in &trigram_counts[0..10] {
+        for x in &trigram_counts[0..min(10, trigram_counts.len())] {
             info!(
                 "{:?} {:?}",
                 symbols_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false),
@@ -587,8 +601,10 @@ fn main() {
         }
     }
 
-    let input_names = convert_common_bigrams_to_symbols(input_names, opt.bigram_reduce_count);
+    //Good to get rid of the rare cases well before we hit any other optimisations.
     let input_names = combine_rare_symbols(input_names);
+    let input_names = convert_common_bigrams_to_symbols(input_names, opt.bigram_reduce_count);
+    //let input_names = combine_rare_symbols(input_names);
     let mut model = MarkovModel::new(order);
 
     info!("Populating model...");
@@ -619,4 +635,17 @@ fn main() {
 
         println!("Hello, world!");
     */
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+
+    #[test]
+    fn test_replace() {
+        let v = vec!["A", "B"];
+        let r = replace(&v, &v, &["X"]);
+        assert_eq!(r, vec!["X"]);
+    }
 }

@@ -364,51 +364,112 @@ fn print_model_summary(model: &MarkovModel) {
     }
 }
 
+fn replace<T>(haystack:&[T], needle:&[T], replacement:&[T]) -> Vec<T>
+    where T:Clone + PartialEq + std::fmt::Debug
+{
+    let mut result: Vec<T> = vec![];
+    let nh = haystack.len();
+    let nn = needle.len();
+    let mut i=0;
+    loop {
+        if i >= nh { break; }
+        if i+nn <= nh && &haystack[i..i+nn] == &needle[..] {
+            result.extend_from_slice(&replacement[..]);
+            i+=nn;
+        } else {
+            result.push(haystack[i].clone());
+            i+=1;
+        }
+    }
+    result
+}
+
 //TODO: At the moment this just prints the
 //      cases we could reduce - it doesn't actually reduce them
 fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
+    let mut result = input_names.clone();
     use log::Level::Info;
     // Hunt for symbols that are only ever used before another
     // These can be reduced to a combined symbol cheaply
-    let bigram_counts = get_bigram_counts(&input_names);
-    let mut symbol_to_followers: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
-    for s in bigram_counts.keys() {
-        symbol_to_followers
-            .entry(s.0.clone())
-            .or_insert_with(BTreeSet::new)
-            .insert(s.1.clone());
-    }
-    info!("====");
-    for (k, ss) in &symbol_to_followers {
-        if ss.len() > 3 {
-            debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
-        } else if log_enabled!(Info) {
-            let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
-            info!("{} => {:?}", symbols_to_word(&[k], false), sss);
+
+    loop {
+        let bigram_counts = get_bigram_counts(&result);
+        let mut symbol_to_followers: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
+        for s in bigram_counts.keys() {
+            symbol_to_followers
+                .entry(s.0.clone())
+                .or_insert_with(BTreeSet::new)
+                .insert(s.1.clone());
         }
+        let mut reduce_count:i32=0;
+        for (k, ss) in &symbol_to_followers {
+            if ss.len() == 1 {
+                reduce_count += 1;
+                let s = ss.iter().next().unwrap();
+                let replacement = Symbol::Compound(
+                    symbols_to_vec(&[k,s], false)
+                );
+                info!(
+                    "Replacing {:?} with {}", 
+                    symbols_to_word(&[k,s], true),
+                    symbols_to_word(&[&replacement], false),
+                );
+                result = result
+                    .iter()
+                    .map(|n| replace(&n, &[k.clone(),s.clone()], &[replacement.clone()] ))
+                    .collect();
+            } else if ss.len() > 3 {
+                debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
+            } else if log_enabled!(Info) {
+                let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
+                debug!("{} => {:?}", symbols_to_word(&[k], false), sss);
+            }
+        }
+        info!("XA Pass reduced {} bigrams", reduce_count);
+        debug!("result = {:?}", result);
+        if reduce_count==0 { break; }
     }
     //println!("{:?}",symbol_to_followers );
 
     // Hunt for symbols that are only ever used after another
     // These can be reduced to a combined symbol cheaply
-    let bigram_counts = get_bigram_counts(&input_names);
-    let mut symbol_to_prefix: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
-    for s in bigram_counts.keys() {
-        symbol_to_prefix
-            .entry(s.1.clone())
-            .or_insert_with(BTreeSet::new)
-            .insert(s.0.clone());
-    }
-    info!("====");
-    for (k, ss) in &symbol_to_prefix {
-        if ss.len() > 3 {
-            debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
-        } else if log_enabled!(Info) {
-            let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
-            info!("{:?} => {}", sss, symbols_to_word(&[k], false));
+    loop {
+        let bigram_counts = get_bigram_counts(&result);
+        let mut symbol_to_prefix: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
+        for s in bigram_counts.keys() {
+            symbol_to_prefix
+                .entry(s.1.clone())
+                .or_insert_with(BTreeSet::new)
+                .insert(s.0.clone());
         }
+        let mut reduce_count:i32=0;
+        for (k, ss) in &symbol_to_prefix {
+            if ss.len() == 1 {
+                reduce_count += 1;
+                let s = ss.iter().next().unwrap();
+                let replacement = Symbol::Compound(
+                    symbols_to_vec(&[s,k], false)
+                );
+                info!(
+                    "Replacing {:?} with {}", 
+                    symbols_to_word(&[s,k], true),
+                    symbols_to_word(&[&replacement], false),
+                );
+                result = result
+                    .iter()
+                    .map(|n| replace(&n, &[s.clone(), k.clone()], &[replacement.clone()] ))
+                    .collect();
+            } else if ss.len() > 3 {
+                debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
+            } else if log_enabled!(Info) {
+                let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
+                debug!("{:?} => {}", sss, symbols_to_word(&[k], false));
+            }
+        }
+        info!("AX Pass reduced {} bigrams", reduce_count);
+        if reduce_count==0 { break; }
     }
-    input_names
+    result
 }
 
 fn get_sorted_bigram_counts(input_names: &Vec<Vec<Symbol>>) -> Vec<((Symbol, Symbol), usize)> {

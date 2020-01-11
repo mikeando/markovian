@@ -171,7 +171,7 @@ fn symbols_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
 }
 
 fn symbols_to_word(v: &[&Symbol], insert_sep: bool) -> String {
-    String::from_utf8(symbols_to_vec(v, insert_sep)).unwrap()
+    String::from_utf8_lossy(&symbols_to_vec(v, insert_sep)).to_string()
 }
 
 fn get_symbol_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {

@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+use markovian_core::sequence_map;
+
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 enum Symbol {
     Start,
@@ -90,6 +92,66 @@ impl MarkovModel {
             }
         }
         unreachable!();
+    }
+
+    fn convert_string_to_symbols(&self, s: &str) -> Vec<Symbol> {
+        use sequence_map::SequenceMapNode;
+        // We use a greedy algorithm that is not guaranteed to work.
+        // Find all the compound symbols we support.
+        let mut mapper: SequenceMapNode<u8, Symbol> = SequenceMapNode::new();
+        for context in self.contexts.keys() {
+            for s in context {
+                if let Symbol::Compound(v) = s {
+                    mapper.insert(v, Some(s.clone()));
+                }
+            }
+        }
+        let mapper = mapper;
+        let mut result = vec![];
+        let mut st = s.as_bytes();
+        while !st.is_empty() {
+            match mapper.transform_prefix(&st) {
+                Some((sy, stn)) => {
+                    st = stn;
+                    result.push(sy.clone());
+                }
+                None => {
+                    result.push(Symbol::Char(st[0]));
+                    st = &st[1..];
+                }
+            }
+        }
+        result
+    }
+
+    fn sample_starting_with<R: Rng>(&self, prefix: &str, rng: &mut R, print_sep: bool) -> String {
+        // Convert prefix to symbols
+        let prefix_symbols: Vec<Symbol> = self.convert_string_to_symbols(prefix);
+        let mut context = self.initial_context();
+        let L = context.len();
+        let mut symbols = vec![];
+
+        // Put in the prefix.
+        for s in prefix_symbols {
+            symbols.push(s.clone());
+            context.rotate_left(1);
+            context[L - 1] = s;
+        }
+
+        //Handle the rest
+        loop {
+            let s = self.sample_next_symbol(&context, rng);
+            match &s {
+                Symbol::End => break,
+                Symbol::Start => unimplemented!(),
+                _ => {}
+            }
+            symbols.push(s.clone());
+            context.rotate_left(1);
+            context[L - 1] = s;
+        }
+        let symbol_refs: Vec<_> = symbols.iter().collect();
+        symbols_to_word(&symbol_refs, print_sep)
     }
 
     fn sample<R: Rng>(&self, rng: &mut R, print_sep: bool) -> String {
@@ -308,6 +370,10 @@ struct Opt {
     /// Run productions test
     #[structopt(short, long)]
     run_productions_test: bool,
+
+    /// prefix
+    #[structopt(short, long)]
+    prefix: Option<String>,
 }
 
 fn setup_logging(verbose: i32) {
@@ -364,21 +430,24 @@ fn print_model_summary(model: &MarkovModel) {
     }
 }
 
-fn replace<T>(haystack:&[T], needle:&[T], replacement:&[T]) -> Vec<T>
-    where T:Clone + PartialEq + std::fmt::Debug
+fn replace<T>(haystack: &[T], needle: &[T], replacement: &[T]) -> Vec<T>
+where
+    T: Clone + PartialEq + std::fmt::Debug,
 {
     let mut result: Vec<T> = vec![];
     let nh = haystack.len();
     let nn = needle.len();
-    let mut i=0;
+    let mut i = 0;
     loop {
-        if i >= nh { break; }
-        if i+nn <= nh && &haystack[i..i+nn] == &needle[..] {
+        if i >= nh {
+            break;
+        }
+        if i + nn <= nh && &haystack[i..i + nn] == &needle[..] {
             result.extend_from_slice(&replacement[..]);
-            i+=nn;
+            i += nn;
         } else {
             result.push(haystack[i].clone());
-            i+=1;
+            i += 1;
         }
     }
     result
@@ -401,22 +470,20 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
                 .or_insert_with(BTreeSet::new)
                 .insert(s.1.clone());
         }
-        let mut reduce_count:i32=0;
+        let mut reduce_count: i32 = 0;
         for (k, ss) in &symbol_to_followers {
             if ss.len() == 1 {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
-                let replacement = Symbol::Compound(
-                    symbols_to_vec(&[k,s], false)
-                );
+                let replacement = Symbol::Compound(symbols_to_vec(&[k, s], false));
                 info!(
-                    "Replacing {:?} with {}", 
-                    symbols_to_word(&[k,s], true),
+                    "Replacing {:?} with {}",
+                    symbols_to_word(&[k, s], true),
                     symbols_to_word(&[&replacement], false),
                 );
                 result = result
                     .iter()
-                    .map(|n| replace(&n, &[k.clone(),s.clone()], &[replacement.clone()] ))
+                    .map(|n| replace(&n, &[k.clone(), s.clone()], &[replacement.clone()]))
                     .collect();
             } else if ss.len() > 3 {
                 debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
@@ -427,7 +494,9 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
         }
         info!("XA Pass reduced {} bigrams", reduce_count);
         debug!("result = {:?}", result);
-        if reduce_count==0 { break; }
+        if reduce_count == 0 {
+            break;
+        }
     }
     //println!("{:?}",symbol_to_followers );
 
@@ -442,22 +511,20 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
                 .or_insert_with(BTreeSet::new)
                 .insert(s.0.clone());
         }
-        let mut reduce_count:i32=0;
+        let mut reduce_count: i32 = 0;
         for (k, ss) in &symbol_to_prefix {
             if ss.len() == 1 {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
-                let replacement = Symbol::Compound(
-                    symbols_to_vec(&[s,k], false)
-                );
+                let replacement = Symbol::Compound(symbols_to_vec(&[s, k], false));
                 info!(
-                    "Replacing {:?} with {}", 
-                    symbols_to_word(&[s,k], true),
+                    "Replacing {:?} with {}",
+                    symbols_to_word(&[s, k], true),
                     symbols_to_word(&[&replacement], false),
                 );
                 result = result
                     .iter()
-                    .map(|n| replace(&n, &[s.clone(), k.clone()], &[replacement.clone()] ))
+                    .map(|n| replace(&n, &[s.clone(), k.clone()], &[replacement.clone()]))
                     .collect();
             } else if ss.len() > 3 {
                 debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
@@ -467,7 +534,9 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             }
         }
         info!("AX Pass reduced {} bigrams", reduce_count);
-        if reduce_count==0 { break; }
+        if reduce_count == 0 {
+            break;
+        }
     }
     result
 }
@@ -528,20 +597,20 @@ fn main() {
         return;
     }
 
-    let input_names_raw: Vec<String> = 
-        opt.name_file.iter()
-            .map( 
-                |n| { 
-                    let v:Vec<_> = std::fs::read_to_string(n)
-                        .unwrap()
-                        .lines()
-                        .map(|n| n.trim().to_string())
-                        .filter( |s| s.len() >=3)
-                        .collect();
-                    v
-                 } )
-            .flatten()
-            .collect();
+    let input_names_raw: Vec<String> = opt
+        .name_file
+        .iter()
+        .map(|n| {
+            let v: Vec<_> = std::fs::read_to_string(n)
+                .unwrap()
+                .lines()
+                .map(|n| n.trim().to_string())
+                .filter(|s| s.len() >= 3)
+                .collect();
+            v
+        })
+        .flatten()
+        .collect();
 
     //let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
     let verbose: i32 = opt.verbose;
@@ -605,6 +674,62 @@ fn main() {
     let input_names = combine_rare_symbols(input_names);
     let input_names = convert_common_bigrams_to_symbols(input_names, opt.bigram_reduce_count);
     //let input_names = combine_rare_symbols(input_names);
+
+    {
+        let symbols = get_symbol_counts(&input_names);
+        let symbols: Vec<Symbol> = symbols.keys().cloned().collect();
+        let bigrams = get_bigram_counts(&input_names);
+        let reprs: Vec<_> = symbols
+            .iter()
+            .map(|s| repr_for_symbol(s, &symbols, &bigrams))
+            .collect();
+        println!("{} symbols", symbols.len());
+        for (s, rr) in symbols.iter().zip(reprs.iter()) {
+            println!("{:?} => {:?}", s, rr);
+        }
+
+        let mut compared: Vec<(f32, Symbol, Symbol)> = vec![];
+        for (ra, sa) in reprs.iter().zip(symbols.iter()) {
+            print!("{} ", symbols_to_word(&[sa], false));
+            for (rb, sb) in reprs.iter().zip(symbols.iter()) {
+                let c = dot(ra, rb);
+                print!("{0:.2} ", c);
+                if sa < sb {
+                    compared.push((c, sa.clone(), sb.clone()));
+                }
+            }
+            println!()
+        }
+
+        for (ra, sa) in reprs.iter().zip(symbols.iter()) {
+            use std::cmp::Ordering;
+            let (c, sb) = reprs
+                .iter()
+                .zip(symbols.iter())
+                .filter(|(_rb, sb)| sb != &sa)
+                .map(|(rb, sb)| (dot(ra, rb), sb))
+                .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal))
+                .unwrap();
+
+            if c > 0.2 {
+                let sbs: Vec<_> = reprs
+                    .iter()
+                    .zip(symbols.iter())
+                    .filter(|(_rb, sb)| sb != &sa)
+                    .map(|(rb, sb)| (dot(ra, rb), sb))
+                    .filter(|(cb, sb)| *cb > 0.8 * c)
+                    .map(|(cb, sb)| (cb, symbols_to_word(&[sb], false)))
+                    .collect();
+                println!("{} {:?}", symbols_to_word(&[sa], false), sbs);
+            }
+        }
+
+        compared.sort_by_key(|e| (-e.0 * 1000.0) as i64);
+        for x in &compared[0..100] {
+            println! {"{} ~ {} : {}", symbols_to_word(&[&x.1], false), symbols_to_word(&[&x.2], false), x.0}
+        }
+    }
+
     let mut model = MarkovModel::new(order);
 
     info!("Populating model...");
@@ -618,10 +743,18 @@ fn main() {
     info!("Sampling model...");
 
     for _ in 0..10 {
-        if print_sep {
-            println!("{:?}", model.sample(&mut rng, true));
+        let result = if let Some(prefix) = opt.prefix.as_ref() {
+            info!("sampling with prefix {:?}", prefix);
+            model.sample_starting_with(prefix, &mut rng, print_sep)
         } else {
-            println!("{}", model.sample(&mut rng, false));
+            info!("sampling without prefix");
+            model.sample(&mut rng, print_sep)
+        };
+
+        if print_sep {
+            println!("{:?}", result);
+        } else {
+            println!("{}", result);
         }
     }
 
@@ -637,6 +770,66 @@ fn main() {
     */
 }
 
+pub fn normalize(v: Vec<f32>) -> Vec<f32> {
+    let norm_v = v.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if norm_v == 0.0 {
+        return v;
+    }
+    v.into_iter().map(|v| v / norm_v).collect()
+}
+
+fn repr_for_symbol(
+    s: &Symbol,
+    symbols: &Vec<Symbol>,
+    bigrams: &BTreeMap<(Symbol, Symbol), usize>,
+) -> Vec<f32> {
+    let mut v: Vec<usize> = vec![];
+    for ss in symbols {
+        v.push(*bigrams.get(&(ss.clone(), s.clone())).unwrap_or(&0))
+    }
+    for ss in symbols {
+        v.push(*bigrams.get(&(s.clone(), ss.clone())).unwrap_or(&0))
+    }
+    let v: Vec<f32> = v
+        .into_iter()
+        .map(|v| if v >= 4 { v as f32 } else { 0.0 })
+        .collect();
+    normalize(v)
+}
+
+fn dot(a: &Vec<f32>, b: &Vec<f32>) -> f32 {
+    assert_eq!(a.len(), b.len());
+    a.iter().zip(b.iter()).map(|(aa, bb)| aa * bb).sum()
+}
+
+struct PersonId(u64);
+struct HouseId(u64);
+
+struct Person {}
+
+enum HouseRole {
+    Head,
+    Spouse,
+    Descendent,
+    TitledMember,
+}
+
+struct HouseMember {
+    person: PersonId,
+    role: HouseRole,
+    house: HouseId,
+}
+
+struct House {
+    name: String,
+    primary: Option<PersonId>,
+}
+
+fn house_gen() {
+    // Generate the house name
+    //
+}
+
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
@@ -647,5 +840,42 @@ mod tests {
         let v = vec!["A", "B"];
         let r = replace(&v, &v, &["X"]);
         assert_eq!(r, vec!["X"]);
+    }
+
+    #[test]
+    fn test_symbol_to_vector_from_bigram_map() {
+        let a = || Symbol::Char(b'a');
+        let b = || Symbol::Char(b'b');
+        let c = || Symbol::Char(b'c');
+        // The vector for a symbols identity is the normalized
+        // count of how often it appears after a given character, and how many times
+        // it appears before a given character.
+
+        let mut bigrams: BTreeMap<(Symbol, Symbol), usize> = BTreeMap::new();
+        bigrams.insert((a(), a()), 2);
+        bigrams.insert((a(), b()), 1);
+        bigrams.insert((c(), a()), 3);
+        bigrams.insert((c(), b()), 1);
+
+        let v = normalize(vec![2., 0., 3., 2., 1., 0.]);
+        let symbols = vec![a(), b(), c()];
+        assert_eq!(v, repr_for_symbol(&a(), &symbols, &bigrams));
+
+        let rr: Vec<_> = symbols
+            .iter()
+            .map(|s| repr_for_symbol(s, &symbols, &bigrams))
+            .collect();
+
+        for ra in &rr {
+            println!("{:?}", ra);
+        }
+
+        for ra in &rr {
+            for rb in &rr {
+                print!("{} ", dot(ra, rb))
+            }
+            println!()
+        }
+        assert!(false)
     }
 }

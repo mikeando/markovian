@@ -1,13 +1,10 @@
-[package]
-name = "markovian"
-version = "0.1.0"
-authors = ["Michael Anderson <drmikeando@gmail.com>"]
-edition = "2018"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+members = [
+    "markovian-core/",
+    "markovian-py/",
+    "markovian-cli/",
+]
 
-[dependencies]
-rand = "0.7.2"
-structopt = "0.3"
-fern = {version="0.5", features=["colored"]}
-log = "0.4"
+[profile.release]
+lto = true

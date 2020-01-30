@@ -7,49 +7,12 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use markovian_core::sequence_map;
-
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
-enum Symbol {
-    Start,
-    End,
-    Char(u8),
-    Compound(Vec<u8>),
-}
-
-#[derive(Debug)]
-struct SymbolWeights {
-    counts: BTreeMap<Symbol, usize>,
-    total: usize,
-}
-
-impl SymbolWeights {
-    fn new() -> SymbolWeights {
-        SymbolWeights {
-            counts: BTreeMap::new(),
-            total: 0,
-        }
-    }
-
-    fn add_symbol(&mut self, s: &Symbol) {
-        self.total += 1;
-        *self.counts.entry(s.clone()).or_insert(0) += 1;
-    }
-
-    fn sample_next_symbol<R: Rng>(&self, rng: &mut R) -> Symbol {
-        let mut v = rng.gen_range(0, self.total);
-        for (s, c) in self.counts.iter() {
-            if v < *c {
-                return s.clone();
-            }
-            v -= *c;
-        }
-        unreachable!();
-    }
-}
+use markovian_core::symbol::Symbol;
+use markovian_core::weighted_sampler::WeightedSampler;
 
 #[derive(Debug)]
 struct MarkovModel {
-    contexts: BTreeMap<Vec<Symbol>, SymbolWeights>,
+    contexts: BTreeMap<Vec<Symbol>, WeightedSampler<Symbol>>,
     order: usize,
 }
 
@@ -74,7 +37,7 @@ impl MarkovModel {
             for cl in 0..self.order {
                 self.contexts
                     .entry(w[cl..self.order].to_vec())
-                    .or_insert_with(SymbolWeights::new)
+                    .or_insert_with(WeightedSampler::new)
                     .add_symbol(&w[self.order]);
             }
         }

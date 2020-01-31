@@ -9,134 +9,8 @@ use structopt::StructOpt;
 use markovian_core::sequence_map;
 use markovian_core::symbol::Symbol;
 use markovian_core::weighted_sampler::WeightedSampler;
+use markovian_core::markov_model::MarkovModel;
 
-#[derive(Debug)]
-struct MarkovModel {
-    contexts: BTreeMap<Vec<Symbol>, WeightedSampler<Symbol>>,
-    order: usize,
-}
-
-impl MarkovModel {
-    fn new(order: usize) -> MarkovModel {
-        MarkovModel {
-            contexts: BTreeMap::new(),
-            order,
-        }
-    }
-
-    fn add(&mut self, s: &[Symbol]) {
-        //println!("{:?} => {:?}", s , ss);
-        use std::iter;
-        let ss: Vec<Symbol> = iter::repeat(Symbol::Start)
-            .take(self.order)
-            .chain(s.iter().cloned())
-            .chain(iter::repeat(Symbol::End).take(1))
-            .collect();
-
-        for w in ss.windows(self.order + 1) {
-            for cl in 0..self.order {
-                self.contexts
-                    .entry(w[cl..self.order].to_vec())
-                    .or_insert_with(WeightedSampler::new)
-                    .add_symbol(&w[self.order]);
-            }
-        }
-    }
-
-    fn initial_context(&self) -> Vec<Symbol> {
-        std::iter::repeat(Symbol::Start).take(self.order).collect()
-    }
-
-    fn sample_next_symbol<R: Rng>(&self, context: &[Symbol], rng: &mut R) -> Symbol {
-        for i in 0..context.len() {
-            let weights = self.contexts.get(&context[i..]);
-            if let Some(ws) = weights {
-                return ws.sample_next_symbol(rng);
-            }
-        }
-        unreachable!();
-    }
-
-    fn convert_string_to_symbols(&self, s: &str) -> Vec<Symbol> {
-        use sequence_map::SequenceMapNode;
-        // We use a greedy algorithm that is not guaranteed to work.
-        // Find all the compound symbols we support.
-        let mut mapper: SequenceMapNode<u8, Symbol> = SequenceMapNode::new();
-        for context in self.contexts.keys() {
-            for s in context {
-                if let Symbol::Compound(v) = s {
-                    mapper.insert(v, Some(s.clone()));
-                }
-            }
-        }
-        let mapper = mapper;
-        let mut result = vec![];
-        let mut st = s.as_bytes();
-        while !st.is_empty() {
-            match mapper.transform_prefix(&st) {
-                Some((sy, stn)) => {
-                    st = stn;
-                    result.push(sy.clone());
-                }
-                None => {
-                    result.push(Symbol::Char(st[0]));
-                    st = &st[1..];
-                }
-            }
-        }
-        result
-    }
-
-    fn sample_starting_with<R: Rng>(&self, prefix: &str, rng: &mut R, print_sep: bool) -> String {
-        // Convert prefix to symbols
-        let prefix_symbols: Vec<Symbol> = self.convert_string_to_symbols(prefix);
-        let mut context = self.initial_context();
-        let L = context.len();
-        let mut symbols = vec![];
-
-        // Put in the prefix.
-        for s in prefix_symbols {
-            symbols.push(s.clone());
-            context.rotate_left(1);
-            context[L - 1] = s;
-        }
-
-        //Handle the rest
-        loop {
-            let s = self.sample_next_symbol(&context, rng);
-            match &s {
-                Symbol::End => break,
-                Symbol::Start => unimplemented!(),
-                _ => {}
-            }
-            symbols.push(s.clone());
-            context.rotate_left(1);
-            context[L - 1] = s;
-        }
-        let symbol_refs: Vec<_> = symbols.iter().collect();
-        symbols_to_word(&symbol_refs, print_sep)
-    }
-
-    fn sample<R: Rng>(&self, rng: &mut R, print_sep: bool) -> String {
-        let mut context = self.initial_context();
-        let L = context.len();
-        let mut symbols = vec![];
-        loop {
-            let s = self.sample_next_symbol(&context, rng);
-            match &s {
-                Symbol::End => break,
-                Symbol::Start => unimplemented!(),
-                _ => {}
-            }
-            symbols.push(s.clone());
-            context.rotate_left(1);
-            //println!("Emitting {:?}", c);
-            context[L - 1] = s;
-        }
-        let symbol_refs: Vec<_> = symbols.iter().collect();
-        symbols_to_word(&symbol_refs, print_sep)
-    }
-}
 
 fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
     s.as_bytes().iter().cloned().map(Symbol::Char).collect()
@@ -166,7 +40,7 @@ fn reduce_symbols(v: Vec<Symbol>, key: (&Symbol, &Symbol), value: &Symbol) -> Ve
     result
 }
 
-fn symbols_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
+fn symbols_to_vec(v: &[Symbol], insert_sep: bool) -> Vec<u8> {
     let mut result: Vec<u8> = vec![];
     let mut is_start = true;
     for s in v {
@@ -195,8 +69,41 @@ fn symbols_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
     result
 }
 
-fn symbols_to_word(v: &[&Symbol], insert_sep: bool) -> String {
+fn symbolrefs_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
+    let mut result: Vec<u8> = vec![];
+    let mut is_start = true;
+    for s in v {
+        if insert_sep {
+            if is_start {
+                is_start = false
+            } else {
+                result.push(b'|')
+            }
+        }
+        match s {
+            Symbol::Start => {
+                result.push(b'^');
+            }
+            Symbol::End => {
+                result.push(b'$');
+            }
+            Symbol::Char(c) => {
+                result.push(*c);
+            }
+            Symbol::Compound(cs) => {
+                result.append(&mut cs.clone());
+            }
+        }
+    }
+    result
+}
+
+fn symbols_to_word(v: &[Symbol], insert_sep: bool) -> String {
     String::from_utf8_lossy(&symbols_to_vec(v, insert_sep)).to_string()
+}
+
+fn symbolrefs_to_word(v: &[&Symbol], insert_sep: bool) -> String {
+    String::from_utf8_lossy(&symbolrefs_to_vec(v, insert_sep)).to_string()
 }
 
 fn get_symbol_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {
@@ -391,7 +298,7 @@ fn print_model_summary(model: &MarkovModel) {
     if log_enabled!(Info) {
         info!("total unique symbols = {:?}", h.len());
         for s in &h {
-            info!("{:?}|", symbols_to_word(&[s], false));
+            info!("{:?}|", symbols_to_word(&[s.clone()], false));
         }
         info!("");
     }
@@ -442,21 +349,21 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             if ss.len() == 1 {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
-                let replacement = Symbol::Compound(symbols_to_vec(&[k, s], false));
+                let replacement = Symbol::Compound(symbolrefs_to_vec(&[k, s], false));
                 info!(
                     "Replacing {:?} with {}",
-                    symbols_to_word(&[k, s], true),
-                    symbols_to_word(&[&replacement], false),
+                    symbolrefs_to_word(&[k, s], true),
+                    symbolrefs_to_word(&[&replacement], false),
                 );
                 result = result
                     .iter()
                     .map(|n| replace(&n, &[k.clone(), s.clone()], &[replacement.clone()]))
                     .collect();
             } else if ss.len() > 3 {
-                debug!("{} => {}", symbols_to_word(&[k], false), ss.len());
+                debug!("{} => {}", symbolrefs_to_word(&[k], false), ss.len());
             } else if log_enabled!(Info) {
-                let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
-                debug!("{} => {:?}", symbols_to_word(&[k], false), sss);
+                let sss: Vec<String> = ss.iter().map(|k| symbolrefs_to_word(&[k], false)).collect();
+                debug!("{} => {:?}", symbolrefs_to_word(&[k], false), sss);
             }
         }
         info!("XA Pass reduced {} bigrams", reduce_count);
@@ -483,21 +390,22 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             if ss.len() == 1 {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
-                let replacement = Symbol::Compound(symbols_to_vec(&[s, k], false));
+                let replacement = Symbol::Compound(symbolrefs_to_vec(&[s, k], false));
                 info!(
                     "Replacing {:?} with {}",
-                    symbols_to_word(&[s, k], true),
-                    symbols_to_word(&[&replacement], false),
+                    symbolrefs_to_word(&[s, k], true),
+                    symbolrefs_to_word(&[&replacement], false),
                 );
+                //TODO: These clones happen every iteration!
                 result = result
                     .iter()
                     .map(|n| replace(&n, &[s.clone(), k.clone()], &[replacement.clone()]))
                     .collect();
             } else if ss.len() > 3 {
-                debug!("{} => {}", ss.len(), symbols_to_word(&[k], false));
+                debug!("{} => {}", ss.len(), symbolrefs_to_word(&[k], false));
             } else if log_enabled!(Info) {
-                let sss: Vec<String> = ss.iter().map(|k| symbols_to_word(&[k], false)).collect();
-                debug!("{:?} => {}", sss, symbols_to_word(&[k], false));
+                let sss: Vec<String> = ss.iter().map(|k| symbolrefs_to_word(&[k], false)).collect();
+                debug!("{:?} => {}", sss, symbolrefs_to_word(&[k], false));
             }
         }
         info!("AX Pass reduced {} bigrams", reduce_count);
@@ -530,7 +438,7 @@ fn convert_common_bigrams_to_symbols(
         let bigram_counts = get_sorted_bigram_counts(&input_names);
         let most_common_bigram = bigram_counts[0].0.clone();
         info!("Removing bigram {:?}", most_common_bigram);
-        let s = Symbol::Compound(symbols_to_vec(
+        let s = Symbol::Compound(symbolrefs_to_vec(
             &[&most_common_bigram.0, &most_common_bigram.1],
             false,
         ));
@@ -544,7 +452,7 @@ fn convert_common_bigrams_to_symbols(
             for x in &bigram_counts[0..10] {
                 debug!(
                     "{:?} {:?}",
-                    symbols_to_word(&[&(x.0).0, &(x.0).1], false),
+                    symbolrefs_to_word(&[&(x.0).0, &(x.0).1], false),
                     x.1
                 );
             }
@@ -602,7 +510,7 @@ fn main() {
     symbol_counts.reverse();
     if log_enabled!(Info) {
         for x in &symbol_counts {
-            info!("{:?} {:?}", symbols_to_word(&[&x.0], false), x.1);
+            info!("{:?} {:?}", symbolrefs_to_word(&[&x.0], false), x.1);
         }
     }
 
@@ -616,7 +524,7 @@ fn main() {
             //let v = [(x.0).0, (x.0).1];
             info!(
                 "{:?} {:?}",
-                symbols_to_word(&[&(x.0).0, &(x.0).1], false),
+                symbolrefs_to_word(&[&(x.0).0, &(x.0).1], false),
                 x.1
             );
         }
@@ -631,7 +539,7 @@ fn main() {
         for x in &trigram_counts[0..min(10, trigram_counts.len())] {
             info!(
                 "{:?} {:?}",
-                symbols_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false),
+                symbolrefs_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false),
                 x.1
             );
         }
@@ -657,7 +565,7 @@ fn main() {
 
         let mut compared: Vec<(f32, Symbol, Symbol)> = vec![];
         for (ra, sa) in reprs.iter().zip(symbols.iter()) {
-            print!("{} ", symbols_to_word(&[sa], false));
+            print!("{} ", symbols_to_word(&[sa.clone()], false));
             for (rb, sb) in reprs.iter().zip(symbols.iter()) {
                 let c = dot(ra, rb);
                 print!("{0:.2} ", c);
@@ -685,15 +593,15 @@ fn main() {
                     .filter(|(_rb, sb)| sb != &sa)
                     .map(|(rb, sb)| (dot(ra, rb), sb))
                     .filter(|(cb, sb)| *cb > 0.8 * c)
-                    .map(|(cb, sb)| (cb, symbols_to_word(&[sb], false)))
+                    .map(|(cb, sb)| (cb, symbols_to_word(&[sb.clone()], false)))
                     .collect();
-                println!("{} {:?}", symbols_to_word(&[sa], false), sbs);
+                println!("{} {:?}", symbols_to_word(&[sa.clone()], false), sbs);
             }
         }
 
         compared.sort_by_key(|e| (-e.0 * 1000.0) as i64);
         for x in &compared[0..100] {
-            println! {"{} ~ {} : {}", symbols_to_word(&[&x.1], false), symbols_to_word(&[&x.2], false), x.0}
+            println! {"{} ~ {} : {}", symbolrefs_to_word(&[&x.1], false), symbolrefs_to_word(&[&x.2], false), x.0}
         }
     }
 
@@ -711,11 +619,12 @@ fn main() {
 
     for _ in 0..10 {
         let result = if let Some(prefix) = opt.prefix.as_ref() {
-            info!("sampling with prefix {:?}", prefix);
-            model.sample_starting_with(prefix, &mut rng, print_sep)
+            let p = model.convert_string_to_symbols(prefix);
+            let symbs = model.sample_starting_with(&p, &mut rng);
+            symbols_to_word(&symbs, print_sep)
         } else {
-            info!("sampling without prefix");
-            model.sample(&mut rng, print_sep)
+            let symbs = model.sample_starting_with(&[], &mut rng);
+            symbols_to_word(&symbs, print_sep)
         };
 
         if print_sep {

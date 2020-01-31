@@ -337,6 +337,10 @@ struct Opt {
     /// prefix
     #[structopt(short, long)]
     prefix: Option<String>,
+
+    /// print symbol separators
+    #[structopt(short, long)]
+    print_separators: bool,
 }
 
 fn setup_logging(verbose: i32) {
@@ -579,7 +583,7 @@ fn main() {
     let verbose: i32 = opt.verbose;
     setup_logging(verbose);
     let order = 3;
-    let print_sep = verbose >= 1;
+    let print_sep = verbose >= 1 || opt.print_separators;
 
     info!("Loading word list...");
 

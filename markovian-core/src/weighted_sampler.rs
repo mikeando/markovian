@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
 use rand::Rng;
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct WeightedSampler<T> {
@@ -8,8 +8,9 @@ pub struct WeightedSampler<T> {
     total: usize,
 }
 
-impl <T> WeightedSampler<T> 
-    where T : Ord + Clone
+impl<T> WeightedSampler<T>
+where
+    T: Ord + Clone,
 {
     pub fn new() -> WeightedSampler<T> {
         WeightedSampler {

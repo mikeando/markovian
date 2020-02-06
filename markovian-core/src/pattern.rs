@@ -1,5 +1,3 @@
-
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct Terminal(u8);
 
@@ -17,14 +15,14 @@ enum Symbol {
 struct ProductionRule {
     s: Option<NonTerminal>,
     weight: u8,
-    results: [Symbol; 4], 
+    results: [Symbol; 4],
 }
 
 impl ProductionRule {
     pub fn new() -> ProductionRule {
         ProductionRule {
-            s:None, 
-            weight:0,
+            s: None,
+            weight: 0,
             results: [Symbol::Empty; 4],
         }
     }
@@ -32,27 +30,27 @@ impl ProductionRule {
 
 //#[derive(Debug)]
 struct Language {
-    t: [ProductionRule; 256]
+    t: [ProductionRule; 256],
 }
 
 impl Language {
     pub fn new() -> Language {
         let t: [ProductionRule; 256] = [ProductionRule::new(); 256];
-        Language {t}
+        Language { t }
     }
 
-    pub fn produce<'a>(&self, result_buffer: &mut Vec<Symbol>, expansion_buffer: &mut Vec<Symbol> ) {
+    pub fn produce<'a>(&self, result_buffer: &mut Vec<Symbol>, expansion_buffer: &mut Vec<Symbol>) {
         // We always start from NonTerminal[0], so stick that in to start with
         result_buffer.clear();
         expansion_buffer.clear();
         expansion_buffer.push(Symbol::NonTerminal(NonTerminal(0)));
 
-        while ! expansion_buffer.is_empty() {
+        while !expansion_buffer.is_empty() {
             self.expand_one(result_buffer, expansion_buffer);
         }
     }
 
-    pub fn find_rule(&self, t:NonTerminal) -> Option<&ProductionRule> {
+    pub fn find_rule(&self, t: NonTerminal) -> Option<&ProductionRule> {
         for x in (&self.t).iter() {
             if let Some(s) = x.s {
                 if s == t {
@@ -63,13 +61,13 @@ impl Language {
         None
     }
 
-    pub fn expand_one(&self, result_buffer: &mut Vec<Symbol>, expansion_buffer: &mut Vec<Symbol> ) {
+    pub fn expand_one(&self, result_buffer: &mut Vec<Symbol>, expansion_buffer: &mut Vec<Symbol>) {
         if expansion_buffer.is_empty() {
-            return
+            return;
         }
         let s = expansion_buffer.pop().unwrap();
         match s {
-            Symbol::Empty => {},
+            Symbol::Empty => {}
             Symbol::Terminal(t) => result_buffer.push(Symbol::Terminal(t)),
             Symbol::NonTerminal(t) => {
                 let r: Option<&ProductionRule> = self.find_rule(t);
@@ -82,7 +80,6 @@ impl Language {
                 }
             }
         }
-
     }
 }
 
@@ -94,8 +91,13 @@ mod tests {
         let mut language = Language::new();
         language.t[0].s = Some(NonTerminal(0));
         language.t[0].weight = 1;
-        language.t[0].results = [Symbol::Terminal(Terminal(1)), Symbol::Empty, Symbol::Empty, Symbol::Empty];
-        return language
+        language.t[0].results = [
+            Symbol::Terminal(Terminal(1)),
+            Symbol::Empty,
+            Symbol::Empty,
+            Symbol::Empty,
+        ];
+        return language;
     }
 
     #[test]
@@ -106,7 +108,12 @@ mod tests {
         language.produce(&mut result, &mut expansion_buffer);
         assert_eq!(result, vec![Symbol::Terminal(Terminal(1))]);
 
-        language.t[0].results = [Symbol::Terminal(Terminal(2)), Symbol::Empty, Symbol::Empty, Symbol::Empty];
+        language.t[0].results = [
+            Symbol::Terminal(Terminal(2)),
+            Symbol::Empty,
+            Symbol::Empty,
+            Symbol::Empty,
+        ];
         language.produce(&mut result, &mut expansion_buffer);
         assert_eq!(result, vec![Symbol::Terminal(Terminal(2))]);
     }

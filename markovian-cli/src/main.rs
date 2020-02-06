@@ -252,6 +252,10 @@ struct Opt {
     /// number of names to print
     #[structopt(short, long, default_value = "20")]
     count: u32,
+
+    /// number of names to print
+    #[structopt(long)]
+    reverse: bool,
 }
 
 fn setup_logging(verbose: i32) {
@@ -612,8 +616,11 @@ fn main() {
     let mut model = MarkovModel::new(order);
 
     info!("Populating model...");
-    for name in &input_names {
-        model.add(name);
+    for mut name in input_names {
+        if opt.reverse {
+            name.reverse()
+        }
+        model.add(&name);
     }
 
     print_model_summary(&model);
@@ -622,15 +629,19 @@ fn main() {
     info!("Sampling model...");
 
     for _ in 0..opt.count {
-        let result = if let Some(prefix) = opt.prefix.as_ref() {
-            let p = model.convert_string_to_symbols(prefix);
-            let symbs = model.sample_starting_with(&p, &mut rng);
-            symbols_to_word(&symbs, print_sep)
+        let mut symbs = if let Some(prefix) = opt.prefix.as_ref() {
+            let mut p = model.convert_string_to_symbols(prefix);
+            if opt.reverse {
+                p.reverse();
+            }
+            model.sample_starting_with(&p, &mut rng)
         } else {
-            let symbs = model.sample_starting_with(&[], &mut rng);
-            symbols_to_word(&symbs, print_sep)
+            model.sample_starting_with(&[], &mut rng)
         };
-
+        if opt.reverse {
+            symbs.reverse();
+        }
+        let result  = symbols_to_word(&symbs, print_sep);
         if print_sep {
             println!("{:?}", result);
         } else {

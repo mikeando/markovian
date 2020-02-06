@@ -246,7 +246,7 @@ struct Opt {
     prefix: Option<String>,
 
     /// print symbol separators
-    #[structopt(short, long)]
+    #[structopt(long)]
     print_separators: bool,
 }
 

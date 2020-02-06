@@ -248,6 +248,10 @@ struct Opt {
     /// print symbol separators
     #[structopt(long)]
     print_separators: bool,
+
+    /// number of names to print
+    #[structopt(short, long, default_value = "20")]
+    count: u32,
 }
 
 fn setup_logging(verbose: i32) {
@@ -617,7 +621,7 @@ fn main() {
     let mut rng = rand::thread_rng();
     info!("Sampling model...");
 
-    for _ in 0..10 {
+    for _ in 0..opt.count {
         let result = if let Some(prefix) = opt.prefix.as_ref() {
             let p = model.convert_string_to_symbols(prefix);
             let symbs = model.sample_starting_with(&p, &mut rng);

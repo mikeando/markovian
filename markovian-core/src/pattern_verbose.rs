@@ -1,48 +1,61 @@
-use std::collections::BTreeMap;
 use rand::Rng;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Default)]
 pub struct SymbolId(u32);
 
 #[derive(Debug, Clone)]
 pub struct Production {
-        weight:u32,
-        keys:Vec<SymbolId>,
+    weight: u32,
+    keys: Vec<SymbolId>,
 }
 
 impl Production {
-    pub fn new(weight:u32, keys:&[SymbolId]) -> Production {
-        Production {weight, keys:keys.to_vec()}
+    pub fn new(weight: u32, keys: &[SymbolId]) -> Production {
+        Production {
+            weight,
+            keys: keys.to_vec(),
+        }
     }
 
-    pub fn reindex_symbols<F>(self, f:F) -> Production 
-    where F:Fn(SymbolId)->SymbolId 
+    pub fn reindex_symbols<F>(self, f: F) -> Production
+    where
+        F: Fn(SymbolId) -> SymbolId,
     {
         let mut result = self;
-        result.keys = result.keys.into_iter().map( |v| f(v)).collect();
+        result.keys = result.keys.into_iter().map(|v| f(v)).collect();
         result
     }
 }
 
 pub trait SimpleRNG {
-    fn gen_range(&mut self, low:u32, high:u32) -> u32;
+    fn gen_range(&mut self, low: u32, high: u32) -> u32;
 }
 
-impl <T> SimpleRNG for T where T:Rng {
-    fn gen_range(&mut self, low:u32, high:u32) -> u32 {
-        Rng::gen_range(self,low,high)
+impl<T> SimpleRNG for T
+where
+    T: Rng,
+{
+    fn gen_range(&mut self, low: u32, high: u32) -> u32 {
+        Rng::gen_range(self, low, high)
     }
 }
 
-pub fn choose_by_weight<'a, R:SimpleRNG, T, F>(rng:&mut R, values:&'a [T], weightfn:&F) -> Option<&'a T> 
-    where
-        R: SimpleRNG,
-        F: Fn(&T)->u32 
+pub fn choose_by_weight<'a, R: SimpleRNG, T, F>(
+    rng: &mut R,
+    values: &'a [T],
+    weightfn: &F,
+) -> Option<&'a T>
+where
+    R: SimpleRNG,
+    F: Fn(&T) -> u32,
 {
-    let sum_w:u32 = values.iter().map(weightfn).sum();
-    if sum_w == 0 { return None }
-    let r = rng.gen_range(0,sum_w);
-    let mut s:u32 = 0;
+    let sum_w: u32 = values.iter().map(weightfn).sum();
+    if sum_w == 0 {
+        return None;
+    }
+    let r = rng.gen_range(0, sum_w);
+    let mut s: u32 = 0;
     for v in values {
         s += weightfn(v);
         if s > r {
@@ -54,44 +67,51 @@ pub fn choose_by_weight<'a, R:SimpleRNG, T, F>(rng:&mut R, values:&'a [T], weigh
 
 #[derive(Debug, Default)]
 pub struct ProductionGroup {
-    productions:Vec<Production>
+    productions: Vec<Production>,
 }
 
 impl ProductionGroup {
     pub fn new() -> ProductionGroup {
-        ProductionGroup { productions:vec![] }
+        ProductionGroup {
+            productions: vec![],
+        }
     }
 
-    pub fn add(&mut self, p:Production) {
+    pub fn add(&mut self, p: Production) {
         self.productions.push(p);
     }
 
-    pub fn reindex_symbols<F>(self, f:F) -> ProductionGroup 
-        where F:Fn(SymbolId)->SymbolId
+    pub fn reindex_symbols<F>(self, f: F) -> ProductionGroup
+    where
+        F: Fn(SymbolId) -> SymbolId,
     {
         let mut result = self;
-        result.productions = result.productions.into_iter().map( |v| v.reindex_symbols(&f)).collect();
+        result.productions = result
+            .productions
+            .into_iter()
+            .map(|v| v.reindex_symbols(&f))
+            .collect();
         result
     }
 }
 
 #[derive(Debug, Default)]
 pub struct Language {
-    terminals_by_value:BTreeMap<String, SymbolId>,
-    terminals_by_id:BTreeMap<SymbolId,String>,
-    symbols_by_name:BTreeMap<String,SymbolId>,
-    productions_by_id:BTreeMap<SymbolId, ProductionGroup>,
-    last_id:SymbolId,
+    terminals_by_value: BTreeMap<String, SymbolId>,
+    terminals_by_id: BTreeMap<SymbolId, String>,
+    symbols_by_name: BTreeMap<String, SymbolId>,
+    productions_by_id: BTreeMap<SymbolId, ProductionGroup>,
+    last_id: SymbolId,
 }
 
 impl Language {
     pub fn new() -> Language {
-        Language{
-            terminals_by_value:BTreeMap::new(),
-            terminals_by_id:BTreeMap::new(),
-            symbols_by_name:BTreeMap::new(),
-            productions_by_id:BTreeMap::new(),
-            last_id:SymbolId(0),
+        Language {
+            terminals_by_value: BTreeMap::new(),
+            terminals_by_id: BTreeMap::new(),
+            symbols_by_name: BTreeMap::new(),
+            productions_by_id: BTreeMap::new(),
+            last_id: SymbolId(0),
         }
     }
 
@@ -100,17 +120,17 @@ impl Language {
         self.last_id
     }
 
-    pub fn terminal<T:Into<String>>(&mut self, v:T) -> SymbolId {
+    pub fn terminal<T: Into<String>>(&mut self, v: T) -> SymbolId {
         //TODO: Check if it already exists in the list.
         let symbol = self.new_symbol();
-        let value:String = v.into();
+        let value: String = v.into();
         self.terminals_by_value.insert(value.clone(), symbol);
-        self.terminals_by_id.insert(symbol,value);
+        self.terminals_by_id.insert(symbol, value);
         symbol
     }
 
-    pub fn add_or_get_named_symbol<T:Into<String>>(&mut self, v:T) -> SymbolId {
-        let s:String = v.into();
+    pub fn add_or_get_named_symbol<T: Into<String>>(&mut self, v: T) -> SymbolId {
+        let s: String = v.into();
 
         if let Some(symbol_id) = self.symbols_by_name.get(&s) {
             return *symbol_id;
@@ -120,41 +140,46 @@ impl Language {
         symbol_id
     }
 
-    pub fn add_or_get_literal<T:Into<String>>(&mut self, v:T) -> SymbolId {
-        let s:String = v.into();
+    pub fn add_or_get_literal<T: Into<String>>(&mut self, v: T) -> SymbolId {
+        let s: String = v.into();
         if let Some(symbol_id) = self.terminals_by_value.get(&s) {
             return *symbol_id;
         }
         let symbol_id = self.new_symbol();
-        self.terminals_by_id.insert(symbol_id,s.clone());
-        self.terminals_by_value.insert(s,symbol_id);
+        self.terminals_by_id.insert(symbol_id, s.clone());
+        self.terminals_by_value.insert(s, symbol_id);
         symbol_id
     }
 
-
-    pub fn token_by_name<T:Into<String>>(&self, v:T) -> Option<SymbolId> {
+    pub fn token_by_name<T: Into<String>>(&self, v: T) -> Option<SymbolId> {
         self.symbols_by_name.get(&v.into()).cloned()
     }
 
-    pub fn add_terminal_production<T:Into<String>>(&mut self, symbol_id: SymbolId, weight:u32, v:T) {
+    pub fn add_terminal_production<T: Into<String>>(
+        &mut self,
+        symbol_id: SymbolId,
+        weight: u32,
+        v: T,
+    ) {
         let symbol = self.terminal(v);
         self.add_production(symbol_id, weight, &[symbol])
     }
 
-    pub fn add_production(&mut self, symbol_id: SymbolId, weight:u32, keys:&[SymbolId]) {
-        self.productions_by_id.entry(symbol_id).or_insert_with(ProductionGroup::new).add(
-            Production::new(weight, keys)
-        )
+    pub fn add_production(&mut self, symbol_id: SymbolId, weight: u32, keys: &[SymbolId]) {
+        self.productions_by_id
+            .entry(symbol_id)
+            .or_insert_with(ProductionGroup::new)
+            .add(Production::new(weight, keys))
     }
 
-    pub fn expand<R:SimpleRNG>(&self, tokens:&[SymbolId], rng:&mut R) -> String {
-        let mut expansion_stack: Vec<&[SymbolId]> = vec!(tokens);
+    pub fn expand<R: SimpleRNG>(&self, tokens: &[SymbolId], rng: &mut R) -> String {
+        let mut expansion_stack: Vec<&[SymbolId]> = vec![tokens];
         let mut complete: String = "".to_string();
 
         while let Some(cur_tokens) = expansion_stack.pop() {
             if cur_tokens.is_empty() {
                 continue;
-            } 
+            }
             let token = cur_tokens[0];
             if cur_tokens.len() > 1 {
                 expansion_stack.push(&cur_tokens[1..]);
@@ -166,75 +191,103 @@ impl Language {
                 //TODO: Need to select by weight.
                 //TODO: Need to handle productions being empty.
                 let pg = self.productions_by_id.get(&token).unwrap();
-                let p = choose_by_weight(rng, &pg.productions, &|x:&Production| x.weight).unwrap();
+                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight).unwrap();
                 expansion_stack.push(&p.keys);
             }
         }
         complete
     }
 
-    pub fn remap_literals<F>(self, f:F) -> Language 
-        where F:Fn(String) -> String
+    pub fn remap_literals<F>(self, f: F) -> Language
+    where
+        F: Fn(String) -> String,
     {
         let mut result = self;
-        result.terminals_by_id = result.terminals_by_id.into_iter().map(|(id, v)| (id, f(v))).collect();
-        result.terminals_by_value = result.terminals_by_value.into_iter().map(|(v, id)| (f(v), id)).collect();
+        result.terminals_by_id = result
+            .terminals_by_id
+            .into_iter()
+            .map(|(id, v)| (id, f(v)))
+            .collect();
+        result.terminals_by_value = result
+            .terminals_by_value
+            .into_iter()
+            .map(|(v, id)| (f(v), id))
+            .collect();
         result
     }
 
-    pub fn rename_symbols<F>(self, f:F) -> Language 
-        where F:Fn(String)->String
+    pub fn rename_symbols<F>(self, f: F) -> Language
+    where
+        F: Fn(String) -> String,
     {
         let mut result = self;
-        result.symbols_by_name = result.symbols_by_name.into_iter().map(|(k,v)| (f(k),v)).collect();
+        result.symbols_by_name = result
+            .symbols_by_name
+            .into_iter()
+            .map(|(k, v)| (f(k), v))
+            .collect();
         result
     }
 
-    pub fn reindex_symbols<F>(self, f:F) -> Language
-        where F:Fn(SymbolId)->SymbolId
+    pub fn reindex_symbols<F>(self, f: F) -> Language
+    where
+        F: Fn(SymbolId) -> SymbolId,
     {
         let mut result = self;
-        result.terminals_by_id = result.terminals_by_id.into_iter().map(|(id,v)| (f(id),v)).collect();
-        result.terminals_by_value = result.terminals_by_value.into_iter().map(|(v,id)| (v,f(id))).collect();
-        result.symbols_by_name = result.symbols_by_name.into_iter().map(|(v,id)| (v,f(id))).collect();
-        result.productions_by_id = result.productions_by_id.into_iter().map(|(id,v)| (f(id), v.reindex_symbols(&f))).collect();
+        result.terminals_by_id = result
+            .terminals_by_id
+            .into_iter()
+            .map(|(id, v)| (f(id), v))
+            .collect();
+        result.terminals_by_value = result
+            .terminals_by_value
+            .into_iter()
+            .map(|(v, id)| (v, f(id)))
+            .collect();
+        result.symbols_by_name = result
+            .symbols_by_name
+            .into_iter()
+            .map(|(v, id)| (v, f(id)))
+            .collect();
+        result.productions_by_id = result
+            .productions_by_id
+            .into_iter()
+            .map(|(id, v)| (f(id), v.reindex_symbols(&f)))
+            .collect();
 
         let max_id = std::iter::once(0u32)
-                .chain(result.terminals_by_id.iter().map(|(id,_)| id.0))
-                .chain(result.terminals_by_value.iter().map(|(_,id)| id.0))
-                .chain(result.symbols_by_name.iter().map(|(_,id)| id.0))
-                .chain(result.productions_by_id.iter().map(|(id,_)| id.0))
-                .max()
-                .unwrap()
-                ;
+            .chain(result.terminals_by_id.iter().map(|(id, _)| id.0))
+            .chain(result.terminals_by_value.iter().map(|(_, id)| id.0))
+            .chain(result.symbols_by_name.iter().map(|(_, id)| id.0))
+            .chain(result.productions_by_id.iter().map(|(id, _)| id.0))
+            .max()
+            .unwrap();
 
         result.last_id = SymbolId(max_id);
         result
     }
 
-    pub fn format_symbol(&self, sid:SymbolId) -> String {
+    pub fn format_symbol(&self, sid: SymbolId) -> String {
         if let Some(v) = self.terminals_by_id.get(&sid) {
             return format!("'{}'", v);
         }
-        if let Some((v,_id)) = self.symbols_by_name.iter().find(|(_v,id)| **id==sid) {
+        if let Some((v, _id)) = self.symbols_by_name.iter().find(|(_v, id)| **id == sid) {
             return v.clone();
         }
-        format!("{:?}",sid)
+        format!("{:?}", sid)
     }
-
 }
-
 
 pub mod parse {
 
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum ParseError<'a> {
         MissingSymbol,
         InvalidSymbol(&'a str),
         GeneralError,
     }
 
-    impl <'a> ParseError<'a> {
+    impl<'a> ParseError<'a> {
         pub fn description(&self) -> String {
             match self {
                 ParseError::MissingSymbol => format!("missing symbol"),
@@ -244,77 +297,94 @@ pub mod parse {
         }
     }
 
-    #[derive(Debug,Copy,Clone,PartialEq,Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct Weight(pub u32);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct Symbol(pub String);
     impl Symbol {
-        pub fn new<T>(v:T) -> Symbol 
-        where T:Into<String>
+        pub fn new<T>(v: T) -> Symbol
+        where
+            T: Into<String>,
         {
             Symbol(v.into())
         }
     }
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum SymbolOrLiteral {
         Symbol(Symbol),
-        Literal(String)
+        Literal(String),
     }
 
     impl SymbolOrLiteral {
-        pub fn symbol<T>(v:T) -> SymbolOrLiteral
-        where T:Into<String> 
+        pub fn symbol<T>(v: T) -> SymbolOrLiteral
+        where
+            T: Into<String>,
         {
             SymbolOrLiteral::Symbol(Symbol::new(v))
         }
 
-        pub fn literal<T>(v:T) -> SymbolOrLiteral
-        where T:Into<String> 
+        pub fn literal<T>(v: T) -> SymbolOrLiteral
+        where
+            T: Into<String>,
         {
             SymbolOrLiteral::Literal(v.into())
         }
+
+        pub fn as_symbol(&self) -> Option<&Symbol> {
+            match &self {
+                SymbolOrLiteral::Symbol(s) => Some(s),
+                _ => None,
+            }
+        }
+
+        pub fn as_literal(&self) -> Option<&str> {
+            match &self {
+                SymbolOrLiteral::Literal(s) => Some(s),
+                _ => None,
+            }
+        }
     }
 
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct Production {
-        pub weight:Weight,
-        pub from:Symbol,
-        pub options:Vec<Vec<SymbolOrLiteral>>,
+        pub weight: Weight,
+        pub from: Symbol,
+        pub options: Vec<Vec<SymbolOrLiteral>>,
     }
 
-    pub fn eat_spaces(v:&str) -> Result<((),&str), ParseError> {
+    pub fn eat_spaces(v: &str) -> Result<((), &str), ParseError> {
         let mut rest = v;
         //TODO: This should really work on chars..
-        while !rest.is_empty() && (&rest[0..1]==" " || &rest[0..1]=="\t") {
+        while !rest.is_empty() && (&rest[0..1] == " " || &rest[0..1] == "\t") {
             rest = &rest[1..];
         }
         Ok(((), rest))
     }
 
-    pub fn eat_nonspaces(v:&str) -> Result<(&str,&str), ParseError> {
+    pub fn eat_nonspaces(v: &str) -> Result<(&str, &str), ParseError> {
         let mut rest = v;
         //TODO: This should really work on chars..
-        while !rest.is_empty() && (&rest[0..1]!=" " && &rest[0..1]!="\t") {
+        while !rest.is_empty() && (&rest[0..1] != " " && &rest[0..1] != "\t") {
             rest = &rest[1..];
         }
-        Ok((&v[0..(v.len()-rest.len())], rest))
+        Ok((&v[0..(v.len() - rest.len())], rest))
     }
 
-    pub fn is_symbol_character(c:char) -> bool {
+    pub fn is_symbol_character(c: char) -> bool {
         c.is_alphanumeric() || c == '_'
     }
 
-    pub fn eat_symbol_chars(v:&str) -> Result<(&str,&str), ParseError> {
+    pub fn eat_symbol_chars(v: &str) -> Result<(&str, &str), ParseError> {
         for (idx, cc) in v.char_indices() {
-            let mut b = [0;4];
-            if ! is_symbol_character(cc) {
-                return Ok((&v[..idx], &v[idx..]))
+            let mut b = [0; 4];
+            if !is_symbol_character(cc) {
+                return Ok((&v[..idx], &v[idx..]));
             }
         }
-        Ok((v,""))
+        Ok((v, ""))
     }
 
-    pub fn take<'a>(p:&str, v:&'a str) -> Result<(&'a str,&'a str), ParseError<'a>> {
+    pub fn take<'a>(p: &str, v: &'a str) -> Result<(&'a str, &'a str), ParseError<'a>> {
         let len = p.len();
         if v.len() < len {
             return Err(ParseError::GeneralError);
@@ -326,35 +396,36 @@ pub mod parse {
         Ok((pp, &v[len..]))
     }
 
-    pub fn take_char(c:char, v:&str) -> Result<((), &str), ParseError> {
+    pub fn take_char(c: char, v: &str) -> Result<((), &str), ParseError> {
         let mut cit = v.chars();
         if cit.next() != Some(c) {
             Err(ParseError::GeneralError)
         } else {
-            Ok(((),cit.as_str()))
+            Ok(((), cit.as_str()))
         }
     }
 
-    pub fn take_while_not_char(c:char, v:&str) -> Result<(&str, &str), ParseError> {            
+    pub fn take_while_not_char(c: char, v: &str) -> Result<(&str, &str), ParseError> {
         for (idx, cc) in v.char_indices() {
             if cc == c {
-                return Ok((&v[..idx], &v[idx..]))
+                return Ok((&v[..idx], &v[idx..]));
             }
         }
         Err(ParseError::GeneralError)
     }
 
-    pub fn parse_weight(v:&str) -> Result<(Weight, &str), ParseError> {
+    pub fn parse_weight(v: &str) -> Result<(Weight, &str), ParseError> {
         let (_, rest) = eat_spaces(v)?;
-        let (x, rest): (&str,&str) = eat_nonspaces(rest)?;
+        let (x, rest): (&str, &str) = eat_nonspaces(rest)?;
         let (_, rest) = eat_spaces(rest)?;
-        let w:u32 = x.parse::<u32>().map_err(|_| ParseError::GeneralError)?;
+        let w: u32 = x.parse::<u32>().map_err(|_| ParseError::GeneralError)?;
         Ok((Weight(w), rest))
     }
 
-    pub fn parse_symbol(v:&str) -> Result<(Symbol, &str), ParseError> {
+    pub fn parse_symbol(v: &str) -> Result<(Symbol, &str), ParseError> {
         let (_, rest) = eat_spaces(v)?;
-        let (x, rest): (&str,&str) = eat_symbol_chars(rest).map_err(|_e| ParseError::MissingSymbol)?;
+        let (x, rest): (&str, &str) =
+            eat_symbol_chars(rest).map_err(|_e| ParseError::MissingSymbol)?;
         let (_, rest) = eat_spaces(rest)?;
         if x.is_empty() {
             return Err(ParseError::MissingSymbol);
@@ -362,75 +433,85 @@ pub mod parse {
         Ok((Symbol::new(x), rest))
     }
 
-    pub fn parse_tag<'a>(tag:&str, v:&'a str) -> Result<(&'a str, &'a str), ParseError<'a>> {
+    pub fn parse_tag<'a>(tag: &str, v: &'a str) -> Result<(&'a str, &'a str), ParseError<'a>> {
         let (_, rest) = eat_spaces(v)?;
-        let (x, rest): (&str,&str) = eat_nonspaces(rest)?;
+        let (x, rest): (&str, &str) = eat_nonspaces(rest)?;
         let (_, rest) = eat_spaces(rest)?;
         if x == tag {
-            Ok((x,rest))
+            Ok((x, rest))
         } else {
             Err(ParseError::GeneralError)
-        }       
+        }
     }
 
-    pub fn parse_string(v:&str) -> Result<(&str, &str), ParseError> {
+    pub fn parse_string(v: &str) -> Result<(&str, &str), ParseError> {
         let (_, rest) = eat_spaces(v)?;
         let (_, rest) = take_char('"', rest)?;
         let (x, rest) = take_while_not_char('"', rest)?;
         let (_, rest) = take_char('"', rest)?;
         let (_, rest) = eat_spaces(rest)?;
-        Ok((x,rest))
+        Ok((x, rest))
     }
 
-    pub fn parse_alt<'a, F1, F2, I, R>(v:I, f1:F1, f2:F2) -> Result<R, ParseError<'a>>
-        where F1: Fn(I) -> Result<R,ParseError<'a>>,
-              F2: Fn(I) -> Result<R,ParseError<'a>>,
-              R: 'a,
-              I: 'a + Copy 
+    pub fn parse_alt<'a, F1, F2, I, R>(v: I, f1: F1, f2: F2) -> Result<R, ParseError<'a>>
+    where
+        F1: Fn(I) -> Result<R, ParseError<'a>>,
+        F2: Fn(I) -> Result<R, ParseError<'a>>,
+        R: 'a,
+        I: 'a + Copy,
     {
         let r1 = f1(v);
-        if r1.is_ok() { return r1; }
+        if r1.is_ok() {
+            return r1;
+        }
         let r2 = f2(v);
-        if r2.is_ok() { return r2; }
+        if r2.is_ok() {
+            return r2;
+        }
         Err(ParseError::GeneralError)
     }
 
     //NOTE: I couldn't get this working cleanly with parse_alt
     //      so I've just inlined it
-    pub fn parse_symbol_or_literal(v:&str) -> Result<(SymbolOrLiteral, &str), ParseError> {
-        let (_,rest) = eat_spaces(v)?;
+    pub fn parse_symbol_or_literal(v: &str) -> Result<(SymbolOrLiteral, &str), ParseError> {
+        let (_, rest) = eat_spaces(v)?;
         match parse_string(rest) {
-            Ok((w,rest)) => { 
-                return Ok((SymbolOrLiteral::literal(w), rest)); 
+            Ok((w, rest)) => {
+                return Ok((SymbolOrLiteral::literal(w), rest));
             }
-            Err(_e) => { }
+            Err(_e) => {}
         }
         match parse_symbol(rest) {
-            Ok((w,rest)) => { 
-                return Ok((SymbolOrLiteral::Symbol(w), rest)); 
+            Ok((w, rest)) => {
+                return Ok((SymbolOrLiteral::Symbol(w), rest));
             }
-            Err(_e) => { }
+            Err(_e) => {}
         }
         Err(ParseError::GeneralError)
     }
 
-    pub fn parse_symbol_or_literal_list(v:&str) -> Result<(Vec<SymbolOrLiteral>, &str), ParseError> {
-        let (_,rest) = eat_spaces(v)?;
+    pub fn parse_symbol_or_literal_list(
+        v: &str,
+    ) -> Result<(Vec<SymbolOrLiteral>, &str), ParseError> {
+        let (_, rest) = eat_spaces(v)?;
         let mut result = vec![];
         let mut rest = rest;
         loop {
             let r = parse_symbol_or_literal(rest);
             match r {
-                Ok((s, rest_)) => { result.push(s); rest = rest_; },
-                Err(e) => { break; }
+                Ok((s, rest_)) => {
+                    result.push(s);
+                    rest = rest_;
+                }
+                Err(e) => {
+                    break;
+                }
             }
         }
-        Ok((result,rest))
+        Ok((result, rest))
     }
 
-
-    pub fn parse_production(v:&str) -> Result<(Production, &str), ParseError> 
-    {
+    pub fn parse_production(v: &str) -> Result<(Production, &str), ParseError> {
         let (weight, rest): (Weight, &str) = parse_weight(v)?;
         let (from, rest): (Symbol, &str) = parse_symbol(rest)?;
         let (_, rest) = parse_tag("=>", rest)?;
@@ -441,109 +522,152 @@ pub mod parse {
             let (symbols, r): (Vec<SymbolOrLiteral>, &str) = parse_symbol_or_literal_list(rest)?;
             rest = r;
             options.push(symbols);
-            let (_ , r) = eat_spaces(r)?;
+            let (_, r) = eat_spaces(r)?;
             let e = take_char('|', r);
             match e {
-                Ok((_,r)) => {
+                Ok((_, r)) => {
                     let (_, r) = eat_spaces(r)?;
                     rest = r;
-                },
-                Err(_) => { break }
+                }
+                Err(_) => break,
             }
         }
-        if options.is_empty() { return Err(ParseError::GeneralError); }
+        if options.is_empty() {
+            return Err(ParseError::GeneralError);
+        }
 
-        let (_,rest) = eat_spaces(rest)?;
-        Ok(
-            (
-                Production{
-                    weight,
-                    from,
-                    options,
-                },
-                rest
-            )
-        )
+        let (_, rest) = eat_spaces(rest)?;
+        Ok((
+            Production {
+                weight,
+                from,
+                options,
+            },
+            rest,
+        ))
     }
 
     #[derive(Debug, PartialEq, Eq)]
     pub struct Directive {
-        pub name:String,
-        pub arguments:Vec<SymbolOrLiteral>,
+        pub name: String,
+        pub arguments: Vec<SymbolOrLiteral>,
     }
 
-    pub fn parse_directive(v:&str) -> Result<(Directive, &str), ParseError> {
+    pub fn parse_directive(v: &str) -> Result<(Directive, &str), ParseError> {
         let (_, rest) = eat_spaces(v)?;
         let (_, rest) = take_char('@', rest)?;
         let (name, rest) = parse_symbol(rest)?;
-        let (_,rest) = eat_spaces(rest)?;
-        let (_,rest) = take_char('(', rest)?;
-        let (_,rest) = eat_spaces(rest)?;        
+        let (_, rest) = eat_spaces(rest)?;
+        let (_, rest) = take_char('(', rest)?;
+        let (_, rest) = eat_spaces(rest)?;
         let (arguments, rest) = parse_symbol_or_literal_list(rest)?;
-        let (_,rest) = take_char(')', rest)?;
+        let (_, rest) = take_char(')', rest)?;
         Ok((
-            Directive{ name:name.0, arguments },
-            rest
+            Directive {
+                name: name.0,
+                arguments,
+            },
+            rest,
         ))
     }
-
 
     pub enum Line {
         Production(Production),
         Directive(Directive),
     }
 
-    pub fn parse_language_line(line:&str) -> Result<Line, ParseError> {
+    pub fn parse_language_line(line: &str) -> Result<Line, ParseError> {
         let r = parse_directive(line);
         if let Ok(v) = r {
-            let (_,rest) = eat_spaces(v.1).unwrap();
-            if rest.is_empty() { return Ok(Line::Directive(v.0)); }
+            let (_, rest) = eat_spaces(v.1).unwrap();
+            if rest.is_empty() {
+                return Ok(Line::Directive(v.0));
+            }
         }
         let r = parse_production(line);
         if let Ok(v) = r {
-            let (_,rest) = eat_spaces(v.1).unwrap();
-            if rest.is_empty() { return Ok(Line::Production(v.0)); }
+            let (_, rest) = eat_spaces(v.1).unwrap();
+            if rest.is_empty() {
+                return Ok(Line::Production(v.0));
+            }
         }
         Err(ParseError::GeneralError)
     }
 }
 
-pub fn apply_directive(language: &mut Language, directive:&parse::Directive) {
-    println!("Applying directive : {:?}", directive);
-    let qs = language.add_or_get_named_symbol("Q");
-    let ql = language.add_or_get_literal("Q");
-    language.add_production(qs, 1, &[ql]);
+#[derive(Debug)]
+pub enum ContextError {
+    InvalidOperation,
+    InvalidKey,
 }
 
-pub fn load_language(language:&mut Language, language_raw:&str) {
-    for line in language_raw.lines() {
-        match parse::parse_language_line(line) {
-            Err(e) => { println!("Unable to parse line '{:?}'", line); }
-            Ok(parse::Line::Production(p)) => {
-                let s = language.add_or_get_named_symbol(p.from.0);
-                for symbols in p.options {
-                    let result:Vec<_> = symbols.iter().map(
-                        |s:&parse::SymbolOrLiteral| -> SymbolId {
-                            match s {
-                                parse::SymbolOrLiteral::Symbol(s) => {
-                                    language.add_or_get_named_symbol(&s.0)
-                                },
-                                parse::SymbolOrLiteral::Literal(s) => {
-                                    language.add_or_get_literal(s)
-                                }
-                            }
-                        }
-                    ).collect();
-                    language.add_production(s, p.weight.0, &result);
-                }
-            },
-            Ok(parse::Line::Directive(d)) => {
-                apply_directive(language, &d);
+pub trait Context {
+    fn get_word_list(&self, name: &str) -> Result<Vec<String>, ContextError>;
+}
+
+pub struct EmptyContext;
+impl Context for EmptyContext {
+    fn get_word_list(&self, name: &str) -> Result<Vec<String>, ContextError> {
+        Err(ContextError::InvalidOperation)
+    }
+}
+
+pub fn apply_directive(
+    language: &mut Language,
+    directive: &parse::Directive,
+    ctx: &mut dyn Context,
+) {
+    println!("Applying directive : {:?}", directive);
+    match &directive.name[..] {
+        "import_list" => {
+            println!("args = {:?}", directive.arguments);
+            assert_eq!(directive.arguments.len(), 2);
+            let name = directive.arguments[0].as_literal().unwrap();
+            let symb = directive.arguments[1].as_symbol().unwrap();
+            let s = language.add_or_get_named_symbol(&symb.0);
+            for v in ctx.get_word_list(name).unwrap() {
+                let l = language.add_or_get_literal(v);
+                language.add_production(s, 1, &[l]);
             }
+        }
+        //TODO: Make this error.
+        _ => {
+            println!("Unknown directive: {:?}", directive.name);
         }
     }
 }
 
+pub fn load_language(language: &mut Language, language_raw: &str, ctx: &mut dyn Context) {
+    for line in language_raw.lines() {
+        match parse::parse_language_line(line) {
+            Err(e) => {
+                println!("Unable to parse line '{:?} {:?}'", line, e);
+            }
+            Ok(parse::Line::Production(p)) => {
+                let s = language.add_or_get_named_symbol(p.from.0);
+                for symbols in p.options {
+                    let result: Vec<_> = symbols
+                        .iter()
+                        .map(|s: &parse::SymbolOrLiteral| -> SymbolId {
+                            match s {
+                                parse::SymbolOrLiteral::Symbol(s) => {
+                                    language.add_or_get_named_symbol(&s.0)
+                                }
+                                parse::SymbolOrLiteral::Literal(s) => {
+                                    language.add_or_get_literal(s)
+                                }
+                            }
+                        })
+                        .collect();
+                    language.add_production(s, p.weight.0, &result);
+                }
+            }
+            Ok(parse::Line::Directive(d)) => {
+                apply_directive(language, &d, ctx);
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -551,31 +675,26 @@ mod tests {
     use rand::thread_rng;
 
     fn dummy_language() -> Language {
-        let rules = 
-            r#"2 tofu => "tofu"
+        let rules = r#"2 tofu => "tofu"
                1 tofu => tofu " " tofu
                3 tofu => "I like to eat " tofu"#;
 
         let mut language = Language::new();
-        load_language(&mut language, rules);
+        let mut ctx = EmptyContext;
+        load_language(&mut language, rules, &mut ctx);
         language
     }
 
     fn towns_language_mod() -> Language {
-        fn dummy_lister(s:String)->Vec<String> {
+        fn dummy_lister(s: String) -> Vec<String> {
             [
-                "borough",
-                "city",
-                "fort",
-                "hamlet",
-                "parish",
-                "town",
-                "township",
-                "village",
-            ].iter().map(|x| x.to_string()).collect()
+                "borough", "city", "fort", "hamlet", "parish", "town", "township", "village",
+            ]
+            .iter()
+            .map(|x| x.to_string())
+            .collect()
         }
-        let rules = 
-            r#"1 town => town_x
+        let rules = r#"1 town => town_x
             1 town => preword " " town_x
             1 preword => "new" | "old" | "north" | "south" | "east" | "west" | "upper" | "lower"
             1 town_x => descriptive_word " " settlement_type
@@ -662,28 +781,27 @@ mod tests {
             1 person_name => "jim"
             1 descriptive_word => "pink""#;
 
-            //TODO: Add more names
-            //TODO: Add more descriptive terms
-            //TODO: Add geographical features
-            //TODO: Add weather
-            //TODO: Add colors
-            //TODO: Add air_quality
-            //TODO: Add royalty
-            //TODO: Add religion
-            //TODO: Add animals
-            //TODO: Add quality (good grand messy)
-            //TODO: Add jobs
-            //TODO: Add seasons
+        //TODO: Add more names
+        //TODO: Add more descriptive terms
+        //TODO: Add geographical features
+        //TODO: Add weather
+        //TODO: Add colors
+        //TODO: Add air_quality
+        //TODO: Add royalty
+        //TODO: Add religion
+        //TODO: Add animals
+        //TODO: Add quality (good grand messy)
+        //TODO: Add jobs
+        //TODO: Add seasons
 
         let mut language = Language::new();
-        load_language(&mut language, rules);
+        let mut ctx = EmptyContext;
+        load_language(&mut language, rules, &mut ctx);
         language
     }
 
     fn towns_language() -> Language {
-
-                let rules = 
-            r#"1 town => town_x
+        let rules = r#"1 town => town_x
                1 town => preword " " town_x
                1 preword => "new"
                1 preword => "old"
@@ -784,21 +902,22 @@ mod tests {
                1 person_name => "jim"
                1 descriptive_word => "pink""#;
 
-               //TODO: Add more names
-               //TODO: Add more descriptive terms
-               //TODO: Add geographical features
-               //TODO: Add weather
-               //TODO: Add colors
-               //TODO: Add air_quality
-               //TODO: Add royalty
-               //TODO: Add religion
-               //TODO: Add animals
-               //TODO: Add quality (good grand messy)
-               //TODO: Add jobs
-               //TODO: Add seasons
-        
+        //TODO: Add more names
+        //TODO: Add more descriptive terms
+        //TODO: Add geographical features
+        //TODO: Add weather
+        //TODO: Add colors
+        //TODO: Add air_quality
+        //TODO: Add royalty
+        //TODO: Add religion
+        //TODO: Add animals
+        //TODO: Add quality (good grand messy)
+        //TODO: Add jobs
+        //TODO: Add seasons
+
         let mut language = Language::new();
-        load_language(&mut language, rules);
+        let mut ctx = EmptyContext;
+        load_language(&mut language, rules, &mut ctx);
         language
     }
 
@@ -807,13 +926,13 @@ mod tests {
         let mut rng = thread_rng();
 
         let language = towns_language_mod();
-        let language = language.remap_literals(|v| format!("{}|",v));
+        let language = language.remap_literals(|v| format!("{}|", v));
         let s1 = language.token_by_name("town").unwrap();
         for _i in 0..10 {
             let v = language.expand(&[s1], &mut rng);
             println!("{:?}", v);
         }
-        assert_eq!(false,true);
+        assert_eq!(false, true);
     }
 
     #[test]
@@ -860,16 +979,18 @@ mod tests {
             let v = language.expand(&[s1], &mut rng);
             println!("{:?}", v);
         }
-        assert_eq!(false,true);
+        assert_eq!(false, true);
     }
 
     #[test]
     fn test_choose_by_weight() {
-        let vs:Vec<(u32,&str)> = vec![(1,"a"), (2,"b"), (3,"c")];
+        let vs: Vec<(u32, &str)> = vec![(1, "a"), (2, "b"), (3, "c")];
         let mut rng = thread_rng();
-        let mut counts:BTreeMap<&str,u32> = vec![("a",0u32),("b",0u32),("c",0u32)].into_iter().collect();
+        let mut counts: BTreeMap<&str, u32> = vec![("a", 0u32), ("b", 0u32), ("c", 0u32)]
+            .into_iter()
+            .collect();
         for _i in 0..600 {
-            let v = choose_by_weight(&mut rng, &vs, &|x:&(u32,&str)| x.0).unwrap();
+            let v = choose_by_weight(&mut rng, &vs, &|x: &(u32, &str)| x.0).unwrap();
             *counts.get_mut(v.1).unwrap() += 1;
         }
         assert!(counts["a"] < 150, "a = {} should be < 150", counts["a"]);
@@ -878,8 +999,14 @@ mod tests {
         assert!(counts["b"] > 150, "b = {} should be > 150", counts["b"]);
         assert!(counts["c"] < 350, "c = {} should be < 150", counts["c"]);
         assert!(counts["c"] > 250, "c = {} should be > 50", counts["c"]);
-        assert!(counts["a"] + counts["b"] + counts["c"] == 600, "a+b+c = {}+{}+{} = {} should be 600", counts["a"], counts["b"], counts["c"], counts["a"] + counts["b"] + counts["c"]);
-
+        assert!(
+            counts["a"] + counts["b"] + counts["c"] == 600,
+            "a+b+c = {}+{}+{} = {} should be 600",
+            counts["a"],
+            counts["b"],
+            counts["c"],
+            counts["a"] + counts["b"] + counts["c"]
+        );
     }
 
     #[test]
@@ -888,11 +1015,14 @@ mod tests {
         let (production, _) = parse::parse_production(rule).unwrap();
         assert_eq!(production.weight.0, 3);
         assert_eq!(production.from.0, "T");
-        assert_eq!(production.options, vec![vec![
-            parse::SymbolOrLiteral::symbol("T"),
-            parse::SymbolOrLiteral::literal("bar"),
-            parse::SymbolOrLiteral::symbol("Q"),
-        ]])
+        assert_eq!(
+            production.options,
+            vec![vec![
+                parse::SymbolOrLiteral::symbol("T"),
+                parse::SymbolOrLiteral::literal("bar"),
+                parse::SymbolOrLiteral::symbol("Q"),
+            ]]
+        )
     }
 
     #[test]
@@ -901,13 +1031,19 @@ mod tests {
         let (production, _) = parse::parse_production(rule).unwrap();
         assert_eq!(production.weight.0, 3);
         assert_eq!(production.from.0, "T");
-        assert_eq!(production.options, vec![vec![
-            parse::SymbolOrLiteral::symbol("T"),
-            parse::SymbolOrLiteral::symbol("A"),
-        ], vec![
-            parse::SymbolOrLiteral::symbol("Q"),
-            parse::SymbolOrLiteral::symbol("B"),
-        ]])
+        assert_eq!(
+            production.options,
+            vec![
+                vec![
+                    parse::SymbolOrLiteral::symbol("T"),
+                    parse::SymbolOrLiteral::symbol("A"),
+                ],
+                vec![
+                    parse::SymbolOrLiteral::symbol("Q"),
+                    parse::SymbolOrLiteral::symbol("B"),
+                ]
+            ]
+        )
     }
 
     #[test]
@@ -920,8 +1056,14 @@ mod tests {
 
     #[test]
     fn tokenize_symbol() {
-        assert_eq!(parse::parse_symbol("AX XXX"), Ok((parse::Symbol::new("AX"), "XXX")));
-        assert_eq!(parse::parse_symbol(""), Err(parse::ParseError::MissingSymbol));
+        assert_eq!(
+            parse::parse_symbol("AX XXX"),
+            Ok((parse::Symbol::new("AX"), "XXX"))
+        );
+        assert_eq!(
+            parse::parse_symbol(""),
+            Err(parse::ParseError::MissingSymbol)
+        );
     }
 
     #[test]
@@ -983,21 +1125,29 @@ mod tests {
 
     #[test]
     fn parse_alt() {
-        let parser = |w| parse::parse_alt(
-            w,
-            |v| parse::parse_tag("tagA", v),
-            |v| parse::parse_tag("tagB", v),
-        );
+        let parser = |w| {
+            parse::parse_alt(
+                w,
+                |v| parse::parse_tag("tagA", v),
+                |v| parse::parse_tag("tagB", v),
+            )
+        };
 
-        assert_eq!(parser("tagA XXX"), Ok(("tagA","XXX")));
-        assert_eq!(parser("tagB XXX"), Ok(("tagB","XXX")));
+        assert_eq!(parser("tagA XXX"), Ok(("tagA", "XXX")));
+        assert_eq!(parser("tagB XXX"), Ok(("tagB", "XXX")));
         assert_eq!(parser("tagQ XXX"), Err(parse::ParseError::GeneralError));
     }
 
     #[test]
     fn parse_symbol_or_literal() {
-        assert_eq!(parse::parse_symbol_or_literal("tagA XXX"), Ok((parse::SymbolOrLiteral::symbol("tagA"),"XXX")));
-        assert_eq!(parse::parse_symbol_or_literal(r#" "a string"  XXX"#), Ok((parse::SymbolOrLiteral::literal("a string"),"XXX")));
+        assert_eq!(
+            parse::parse_symbol_or_literal("tagA XXX"),
+            Ok((parse::SymbolOrLiteral::symbol("tagA"), "XXX"))
+        );
+        assert_eq!(
+            parse::parse_symbol_or_literal(r#" "a string"  XXX"#),
+            Ok((parse::SymbolOrLiteral::literal("a string"), "XXX"))
+        );
     }
 
     #[test]
@@ -1012,7 +1162,7 @@ mod tests {
                 ""
             ))
         );
-    
+
         assert_eq!(
             parse::parse_symbol_or_literal_list(r#" "a string"  XXX "hello" "#),
             Ok((
@@ -1026,55 +1176,94 @@ mod tests {
         );
     }
 
-
-
     #[test]
     fn load_language_e2e() {
-        let language_raw =
-        r#"1 hello => "hello"
+        let language_raw = r#"1 hello => "hello"
            1 space => " "
            1 world => "world"
            1 hw => hello space world"#;
 
         let mut language = Language::new();
-        load_language(&mut language, language_raw);
+        let mut ctx = EmptyContext;
+        load_language(&mut language, language_raw, &mut ctx);
         let mut rng = thread_rng();
         let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng);
         assert_eq!("hello world", s);
     }
 
-    pub fn break_into_productions(language:&Language) -> Vec<(String,Vec<String>)> {
-        let result: Vec<_> = language.productions_by_id.iter().flat_map( |(k,p):(&SymbolId,&ProductionGroup)| p.productions.iter().map(move |pp|->(SymbolId,Production) {(*k,(*pp).clone())})).collect();
-        let result: Vec<_> = result.into_iter().map(|(s,p)| { (language.format_symbol(s), p)}).collect();
-        let result: Vec<_> = result.into_iter().map(|(s,p)| { (s, p.keys.iter().map(|sid| language.format_symbol(*sid)).collect::<Vec<_>>())}).collect();
+    pub fn break_into_productions(language: &Language) -> Vec<(String, Vec<String>)> {
+        let result: Vec<_> = language
+            .productions_by_id
+            .iter()
+            .flat_map(|(k, p): (&SymbolId, &ProductionGroup)| {
+                p.productions
+                    .iter()
+                    .map(move |pp| -> (SymbolId, Production) { (*k, (*pp).clone()) })
+            })
+            .collect();
+        let result: Vec<_> = result
+            .into_iter()
+            .map(|(s, p)| (language.format_symbol(s), p))
+            .collect();
+        let result: Vec<_> = result
+            .into_iter()
+            .map(|(s, p)| {
+                (
+                    s,
+                    p.keys
+                        .iter()
+                        .map(|sid| language.format_symbol(*sid))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
         result
     }
 
     #[test]
     fn load_language_alternation() {
-        let language_raw =
-        r#"1 foo => "bar" | "baz" | "zap"
+        let language_raw = r#"1 foo => "bar" | "baz" | "zap"
         "#;
 
         let mut language = Language::new();
-        load_language(&mut language, language_raw);
+        let mut ctx = EmptyContext;
+        load_language(&mut language, language_raw, &mut ctx);
         println!("{:?}", language);
-        assert_eq!(language.terminals_by_value.keys().cloned().collect::<Vec<String>>(), &["bar", "baz", "zap"]);
-        assert_eq!(language.symbols_by_name.keys().cloned().collect::<Vec<String>>(), &["foo"]);
+        assert_eq!(
+            language
+                .terminals_by_value
+                .keys()
+                .cloned()
+                .collect::<Vec<String>>(),
+            &["bar", "baz", "zap"]
+        );
+        assert_eq!(
+            language
+                .symbols_by_name
+                .keys()
+                .cloned()
+                .collect::<Vec<String>>(),
+            &["foo"]
+        );
         assert_eq!(language.productions_by_id.len(), 1);
         let prodlist = break_into_productions(&language);
-        assert_eq!(prodlist,
+        assert_eq!(
+            prodlist,
             vec![
-                ("foo".to_string(),vec!["'bar'".to_string()]),
-                ("foo".to_string(),vec!["'baz'".to_string()]),
-                ("foo".to_string(),vec!["'zap'".to_string()]),
-            ]);
+                ("foo".to_string(), vec!["'bar'".to_string()]),
+                ("foo".to_string(), vec!["'baz'".to_string()]),
+                ("foo".to_string(), vec!["'zap'".to_string()]),
+            ]
+        );
     }
 
     #[test]
     fn parse_symbol_fails_on_alternation() {
         let e = parse::parse_symbol("|");
-        assert_eq!(e.map_err(|ee| ee.description() ), Err("missing symbol".to_string()));
+        assert_eq!(
+            e.map_err(|ee| ee.description()),
+            Err("missing symbol".to_string())
+        );
     }
 
     #[test]
@@ -1085,12 +1274,18 @@ mod tests {
 
     #[test]
     fn parse_symbol_simple() {
-        assert_eq!(parse::parse_symbol("XXX"), Ok((parse::Symbol::new("XXX"), "")));
+        assert_eq!(
+            parse::parse_symbol("XXX"),
+            Ok((parse::Symbol::new("XXX"), ""))
+        );
     }
 
     #[test]
     fn parse_symbol_or_literal_simple() {
-        assert_eq!(parse::parse_symbol_or_literal("XXX"), Ok((parse::SymbolOrLiteral::symbol("XXX"), "")));
+        assert_eq!(
+            parse::parse_symbol_or_literal("XXX"),
+            Ok((parse::SymbolOrLiteral::symbol("XXX"), ""))
+        );
     }
 
     #[test]
@@ -1101,12 +1296,12 @@ mod tests {
 
     #[test]
     fn test_parse_directive() {
-        let directive_raw=r#"@import_list("city_types.txt" settlement_type)"#;
-        let (directive,rest) = parse::parse_directive(directive_raw).unwrap();
+        let directive_raw = r#"@import_list("city_types.txt" settlement_type)"#;
+        let (directive, rest) = parse::parse_directive(directive_raw).unwrap();
         assert_eq!(
             parse::Directive {
-                name:"import_list".to_string(),
-                arguments:vec![
+                name: "import_list".to_string(),
+                arguments: vec![
                     parse::SymbolOrLiteral::literal("city_types.txt"),
                     parse::SymbolOrLiteral::symbol("settlement_type")
                 ]
@@ -1117,30 +1312,50 @@ mod tests {
 
     #[test]
     fn test_parse_empty_directive() {
-        let directive_raw=r#"@import_list()"#;
-        let (directive,rest) = parse::parse_directive(directive_raw).unwrap();
+        let directive_raw = r#"@import_list()"#;
+        let (directive, rest) = parse::parse_directive(directive_raw).unwrap();
+        assert_eq!("", rest);
         assert_eq!(
             parse::Directive {
-                name:"import_list".to_string(),
-                arguments:vec![]
+                name: "import_list".to_string(),
+                arguments: vec![]
             },
             directive
         );
     }
 
+    struct MockContext {
+        word_lists: BTreeMap<String, Vec<String>>,
+    }
+
+    impl Context for MockContext {
+        fn get_word_list(&self, name: &str) -> Result<Vec<String>, ContextError> {
+            match self.word_lists.get(name) {
+                Some(v) => Ok(v.clone()),
+                None => Err(ContextError::InvalidKey),
+            }
+        }
+    }
+
     #[test]
-    fn test_parse_language_with_directive() {
-        let language_raw=
-            r#"1 A => "A"
+    fn test_parse_language_with_import_list_directive() {
+        let mut word_lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        word_lists.insert("Q.txt".to_string(), vec!["Q".to_string(), "R".to_string()]);
+        let mut ctx = MockContext { word_lists };
+
+        let language_raw = r#"1 A => "A"
             @import_list("Q.txt" Q)"#;
         let mut language = Language::new();
-        load_language(&mut language, language_raw);
+        load_language(&mut language, language_raw, &mut ctx);
         let prodlist = break_into_productions(&language);
-        assert_eq!(prodlist,
+        assert_eq!(
+            prodlist,
             vec![
                 ("A".to_string(), vec!["'A'".to_string()]),
-                ("Q".to_string(), vec!["'Q'".to_string()])
-            ]);
+                ("Q".to_string(), vec!["'Q'".to_string()]),
+                ("Q".to_string(), vec!["'R'".to_string()])
+            ]
+        );
     }
 
     /*

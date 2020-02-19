@@ -423,7 +423,7 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
     result
 }
 
-fn get_sorted_bigram_counts(input_names: &Vec<Vec<Symbol>>) -> Vec<((Symbol, Symbol), usize)> {
+fn get_sorted_bigram_counts(input_names: &[Vec<Symbol>]) -> Vec<((Symbol, Symbol), usize)> {
     let bigram_counts_map = get_bigram_counts(&input_names);
     let mut bigram_counts: Vec<_> = bigram_counts_map.into_iter().collect();
     bigram_counts.sort_by_key(|e| e.1);
@@ -467,6 +467,109 @@ fn convert_common_bigrams_to_symbols(
     }
     input_names
 }
+
+pub fn normalize(v: Vec<f32>) -> Vec<f32> {
+    let norm_v = v.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if norm_v == 0.0 {
+        return v;
+    }
+    v.into_iter().map(|v| v / norm_v).collect()
+}
+
+fn repr_for_symbol(
+    s: &Symbol,
+    symbols: &[Symbol],
+    bigrams: &BTreeMap<(Symbol, Symbol), usize>,
+) -> Vec<f32> {
+    let mut v: Vec<usize> = vec![];
+    for ss in symbols {
+        v.push(*bigrams.get(&(ss.clone(), s.clone())).unwrap_or(&0))
+    }
+    for ss in symbols {
+        v.push(*bigrams.get(&(s.clone(), ss.clone())).unwrap_or(&0))
+    }
+    let v: Vec<f32> = v
+        .into_iter()
+        .map(|v| if v >= 4 { v as f32 } else { 0.0 })
+        .collect();
+    normalize(v)
+}
+
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    assert_eq!(a.len(), b.len());
+    a.iter().zip(b.iter()).map(|(aa, bb)| aa * bb).sum()
+}
+
+fn all_symbols(v:&[Vec<Symbol>]) -> Vec<Symbol> {
+    get_symbol_counts(v).keys().cloned().collect()
+}
+
+fn symbol_representations(
+    symbols: &[Symbol], 
+    bigrams: &BTreeMap<(Symbol,Symbol),usize>
+) -> Vec<Vec<f32>> {
+    symbols
+    .iter()
+    .map(|s| repr_for_symbol(s, &symbols, &bigrams))
+    .collect()
+} 
+
+fn analyse_symbol_similarity(input_names: &[Vec<Symbol>]) {
+    let symbols = all_symbols(&input_names);
+    let bigrams = get_bigram_counts(&input_names);
+    let reprs = symbol_representations(&symbols, &bigrams);
+
+    println!("{} symbols", symbols.len());
+    for (s, rr) in symbols.iter().zip(reprs.iter()) {
+        println!("{:?} => {:?}", s, rr);
+    }
+
+    // Print the representations
+    let mut compared: Vec<(f32, Symbol, Symbol)> = vec![];
+    for (ra, sa) in reprs.iter().zip(symbols.iter()) {
+        print!("{} ", symbols_to_word(&[sa.clone()], false));
+        for (rb, sb) in reprs.iter().zip(symbols.iter()) {
+            let c = dot(ra, rb);
+            print!("{0:.2} ", c);
+            // We know that sim(x,x) == 1
+            // and sim(x,y) = sim(y,x) so we only need to 
+            // store the entries below the main diagonal.
+            if sa < sb {
+                compared.push((c, sa.clone(), sb.clone()));
+            }
+        }
+        println!()
+    }
+
+    for (ra, sa) in reprs.iter().zip(symbols.iter()) {
+        use std::cmp::Ordering;
+        let (c, _sb) = reprs
+            .iter()
+            .zip(symbols.iter())
+            .filter(|(_rb, sb)| sb != &sa)
+            .map(|(rb, sb)| (dot(ra, rb), sb))
+            .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal))
+            .unwrap();
+
+        if c > 0.2 {
+            let sbs: Vec<_> = reprs
+                .iter()
+                .zip(symbols.iter())
+                .filter(|(_rb, sb)| sb != &sa)
+                .map(|(rb, sb)| (dot(ra, rb), sb))
+                .filter(|(cb, _sb)| *cb > 0.8 * c)
+                .map(|(cb, sb)| (cb, symbols_to_word(&[sb.clone()], false)))
+                .collect();
+            println!("{} {:?}", symbols_to_word(&[sa.clone()], false), sbs);
+        }
+    }
+
+    compared.sort_by_key(|e| (-e.0 * 1000.0) as i64);
+    for x in &compared[0..100] {
+        println! {"{} ~ {} : {}", symbolrefs_to_word(&[&x.1], false), symbolrefs_to_word(&[&x.2], false), x.0}
+    }
+}
+
 
 fn main() {
     use log::Level::Info;
@@ -557,60 +660,7 @@ fn main() {
     let input_names = convert_common_bigrams_to_symbols(input_names, opt.bigram_reduce_count);
     //let input_names = combine_rare_symbols(input_names);
 
-    {
-        let symbols = get_symbol_counts(&input_names);
-        let symbols: Vec<Symbol> = symbols.keys().cloned().collect();
-        let bigrams = get_bigram_counts(&input_names);
-        let reprs: Vec<_> = symbols
-            .iter()
-            .map(|s| repr_for_symbol(s, &symbols, &bigrams))
-            .collect();
-        println!("{} symbols", symbols.len());
-        for (s, rr) in symbols.iter().zip(reprs.iter()) {
-            println!("{:?} => {:?}", s, rr);
-        }
-
-        let mut compared: Vec<(f32, Symbol, Symbol)> = vec![];
-        for (ra, sa) in reprs.iter().zip(symbols.iter()) {
-            print!("{} ", symbols_to_word(&[sa.clone()], false));
-            for (rb, sb) in reprs.iter().zip(symbols.iter()) {
-                let c = dot(ra, rb);
-                print!("{0:.2} ", c);
-                if sa < sb {
-                    compared.push((c, sa.clone(), sb.clone()));
-                }
-            }
-            println!()
-        }
-
-        for (ra, sa) in reprs.iter().zip(symbols.iter()) {
-            use std::cmp::Ordering;
-            let (c, sb) = reprs
-                .iter()
-                .zip(symbols.iter())
-                .filter(|(_rb, sb)| sb != &sa)
-                .map(|(rb, sb)| (dot(ra, rb), sb))
-                .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal))
-                .unwrap();
-
-            if c > 0.2 {
-                let sbs: Vec<_> = reprs
-                    .iter()
-                    .zip(symbols.iter())
-                    .filter(|(_rb, sb)| sb != &sa)
-                    .map(|(rb, sb)| (dot(ra, rb), sb))
-                    .filter(|(cb, sb)| *cb > 0.8 * c)
-                    .map(|(cb, sb)| (cb, symbols_to_word(&[sb.clone()], false)))
-                    .collect();
-                println!("{} {:?}", symbols_to_word(&[sa.clone()], false), sbs);
-            }
-        }
-
-        compared.sort_by_key(|e| (-e.0 * 1000.0) as i64);
-        for x in &compared[0..100] {
-            println! {"{} ~ {} : {}", symbolrefs_to_word(&[&x.1], false), symbolrefs_to_word(&[&x.2], false), x.0}
-        }
-    }
+    analyse_symbol_similarity(&input_names);
 
     let mut model = MarkovModel::new(order);
 
@@ -626,7 +676,37 @@ fn main() {
 
     let mut rng = rand::thread_rng();
     info!("Sampling model...");
+    /*
+    if opt.prefix.is_some() && opt.suffix.is_some() {
+        let mut prefix = model.convert_string_to_symbols(&opt.prefix.unwrap());
+        let mut suffix = model.convert_string_to_symbols(&opt.suffix.unwrap());
+        // Generate forward pieces
+        let forward_results: Vec<Vec<Symbol>> = (0..20).map(|_| { model.sample_starting_with(&prefix, &mut rng) }).collect();
+        let forward_splice_points: BTreeMap<(Symbol,Symbol,Symbol), Vec<Vec<Symbol>>> = BTreeMap::new();
+        for v in forward_results {
+            for (sp, pre) in generate_forward_splice_points(forward_results, prefix.len()) {
+                forward_splice_points.entry(sp).or_insert(vec![]).append(pre);
+            }
+        }
+        // Generate backward pieces.
+        let backward_results: Vec<Vec<Symbol>> = (0..20).map(|_| { model.sample_ending_with(&prefix, &mut rng) }).collect();
+        let backward_splice_points: BTreeMap<(Symbol,Symbol,Symbol), Vec<Vec<Symbol>>> = BTreeMap::new();
+        for v in forward_results {
+            for (sp, suf) in generate_backward_splice_points(backward_results, suffix.len()) {
+                backward_splice_points.entry(sp).or_insert(vec![]).append(suf);
+            }
+        }
 
+        let mut fwd_splice_point_set : BTreeSet<(Symbol,Symbol,Symbol)> = forward_splice_points.keys().cloned().collect();
+        let mut bwd_splice_point_set : BTreeSet<(Symbol,Symbol,Symbol)> = backward_splice_points.keys().cloned().collect();
+        let common_splice_points = fwd_splice_point_set.intersection(&bwd_splice_point_set);
+
+        // Now we just pick a common splice point, then pick one of its prefixes and 
+        // one of its suffixes, and join them. (Trimming out the common splice point)
+
+    }
+    */
+    
     for _ in 0..opt.count {
         let mut symbs = if let Some(prefix) = opt.prefix.as_ref() {
             let mut p = model.convert_string_to_symbols(prefix);
@@ -660,37 +740,7 @@ fn main() {
     */
 }
 
-pub fn normalize(v: Vec<f32>) -> Vec<f32> {
-    let norm_v = v.iter().map(|v| v * v).sum::<f32>().sqrt();
-    if norm_v == 0.0 {
-        return v;
-    }
-    v.into_iter().map(|v| v / norm_v).collect()
-}
 
-fn repr_for_symbol(
-    s: &Symbol,
-    symbols: &Vec<Symbol>,
-    bigrams: &BTreeMap<(Symbol, Symbol), usize>,
-) -> Vec<f32> {
-    let mut v: Vec<usize> = vec![];
-    for ss in symbols {
-        v.push(*bigrams.get(&(ss.clone(), s.clone())).unwrap_or(&0))
-    }
-    for ss in symbols {
-        v.push(*bigrams.get(&(s.clone(), ss.clone())).unwrap_or(&0))
-    }
-    let v: Vec<f32> = v
-        .into_iter()
-        .map(|v| if v >= 4 { v as f32 } else { 0.0 })
-        .collect();
-    normalize(v)
-}
-
-fn dot(a: &Vec<f32>, b: &Vec<f32>) -> f32 {
-    assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(aa, bb)| aa * bb).sum()
-}
 
 struct PersonId(u64);
 struct HouseId(u64);

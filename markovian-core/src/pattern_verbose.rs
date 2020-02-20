@@ -720,7 +720,8 @@ pub fn apply_directive(
     }
 }
 
-pub fn load_language(language: &mut Language, language_raw: &str, ctx: &mut dyn Context) {
+pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Language {
+    let mut language = Language::new();
     for line in language_raw.lines() {
         match parse::parse_language_line(line) {
             Err(e) => {
@@ -746,10 +747,11 @@ pub fn load_language(language: &mut Language, language_raw: &str, ctx: &mut dyn 
                 }
             }
             Ok(parse::Line::Directive(d)) => {
-                apply_directive(language, &d, ctx);
+                apply_directive(&mut language, &d, ctx);
             }
         }
     }
+    language
 }
 
 #[cfg(test)]
@@ -762,10 +764,8 @@ mod tests {
                1 tofu => tofu " " tofu
                3 tofu => "I like to eat " tofu"#;
 
-        let mut language = Language::new();
         let mut ctx = EmptyContext;
-        load_language(&mut language, rules, &mut ctx);
-        language
+        load_language(rules, &mut ctx)
     }
 
     fn towns_language_mod() -> Language {
@@ -877,10 +877,8 @@ mod tests {
         //TODO: Add jobs
         //TODO: Add seasons
 
-        let mut language = Language::new();
         let mut ctx = EmptyContext;
-        load_language(&mut language, rules, &mut ctx);
-        language
+        load_language(rules, &mut ctx)
     }
 
     fn towns_language() -> Language {
@@ -998,10 +996,8 @@ mod tests {
         //TODO: Add jobs
         //TODO: Add seasons
 
-        let mut language = Language::new();
         let mut ctx = EmptyContext;
-        load_language(&mut language, rules, &mut ctx);
-        language
+        load_language(rules, &mut ctx)
     }
 
     #[test]
@@ -1266,9 +1262,8 @@ mod tests {
            1 world => "world"
            1 hw => hello space world"#;
 
-        let mut language = Language::new();
         let mut ctx = EmptyContext;
-        load_language(&mut language, language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx);
         let mut rng = thread_rng();
         let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng);
         assert_eq!("hello world", s);
@@ -1308,9 +1303,8 @@ mod tests {
         let language_raw = r#"1 foo => "bar" | "baz" | "zap"
         "#;
 
-        let mut language = Language::new();
         let mut ctx = EmptyContext;
-        load_language(&mut language, language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx);
         println!("{:?}", language);
         assert_eq!(
             language
@@ -1428,8 +1422,7 @@ mod tests {
 
         let language_raw = r#"1 A => "A"
             @import_list("Q.txt" Q)"#;
-        let mut language = Language::new();
-        load_language(&mut language, language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx);
         let prodlist = break_into_productions(&language);
         assert_eq!(
             prodlist,

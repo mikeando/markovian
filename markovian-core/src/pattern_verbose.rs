@@ -4,6 +4,41 @@ use std::collections::BTreeMap;
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Default)]
 pub struct SymbolId(u32);
 
+mod raw {
+    #[derive(Debug,Clone)]
+    pub struct Symbol(pub String);
+
+    #[derive(Debug,Clone)]
+    pub struct Literal(pub String);
+
+    #[derive(Debug,Clone)]
+    pub enum SymbolOrLiteral {
+        Symbol(Symbol),
+        Literal(Literal)
+    }
+
+    impl SymbolOrLiteral {
+        pub fn literal<T:Into<String>>(v:T) -> Self {
+            SymbolOrLiteral::Literal(Literal(v.into()))
+        }
+        pub fn symbol<T:Into<String>>(v:T) -> Self {
+            SymbolOrLiteral::Symbol(Symbol(v.into()))
+        }
+    }
+
+    #[derive(Debug,Clone)]
+    pub struct Production {
+        pub from:Symbol,
+        pub weight:u32,
+        pub to:Vec<SymbolOrLiteral>
+    }
+
+    #[derive(Debug,Clone)]
+    pub struct Language {
+        pub entries:Vec<Production>
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Production {
     weight: u32,
@@ -276,6 +311,54 @@ impl Language {
         }
         format!("{:?}", sid)
     }
+
+    pub fn from_raw(raw:&raw::Language) -> Self {
+        let mut result = Language::new();
+        for p in &raw.entries {
+            let from = result.add_or_get_named_symbol(&p.from.0);
+            let prod:Vec<SymbolId> = p.to.iter().map(|q| {
+                match q {
+                    raw::SymbolOrLiteral::Symbol(v) => result.add_or_get_named_symbol(&v.0),
+                    raw::SymbolOrLiteral::Literal(v) => result.add_or_get_literal(&v.0),
+                }
+            }).collect();
+            result.add_production(from, p.weight, &prod);
+        }
+        result
+    }
+
+    pub fn to_raw(&self) -> raw::Language {
+        let x:Vec<(String, &ProductionGroup)> = self.productions_by_id
+            .iter()
+            .map( |(k,v)| (self.format_symbol(*k), v))
+            .collect();
+        let y:Vec<(String, Production)> = 
+            x.iter()
+            .flat_map(|(k,g)| g.productions.iter().map(move |v| (k.clone(),v.clone())) )
+            .collect();
+        let z:Vec<(String, u32, Vec<SymbolId>)> = 
+            y.iter()
+            .map(|(k,v)| (k.clone(), v.weight, v.keys.clone()))
+            .collect();
+        let mut entries:Vec<raw::Production> = vec![];
+        for e in z {
+            let from = raw::Symbol(e.0);
+            let weight = e.1;
+            let to:Option<Vec<_>> = e.2.into_iter().map(|vid| {
+                let s = self.symbols_by_name.iter().find(|(k,id)| **id==vid).map(|(k,id)| k);
+                if let Some(s) = s {
+                    return Some(raw::SymbolOrLiteral::symbol(s))
+                }
+                self.terminals_by_id.get(&vid).cloned().map(raw::SymbolOrLiteral::literal)
+            }).collect();
+            let to = to.unwrap();
+            entries.push(
+                raw::Production{ from, weight, to }
+            )
+        }
+        raw::Language { entries }
+    }
+
 }
 
 pub mod parse {

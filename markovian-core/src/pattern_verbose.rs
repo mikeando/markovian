@@ -37,6 +37,12 @@ mod raw {
     pub struct Language {
         pub entries:Vec<Production>
     }
+
+    impl Language {
+        pub fn new() -> Language {
+            Language { entries:vec![] }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -696,7 +702,7 @@ impl Context for EmptyContext {
 }
 
 pub fn apply_directive(
-    language: &mut Language,
+    language: &mut raw::Language,
     directive: &parse::Directive,
     ctx: &mut dyn Context,
 ) {
@@ -706,11 +712,11 @@ pub fn apply_directive(
             println!("args = {:?}", directive.arguments);
             assert_eq!(directive.arguments.len(), 2);
             let name = directive.arguments[0].as_literal().unwrap();
-            let symb = directive.arguments[1].as_symbol().unwrap();
-            let s = language.add_or_get_named_symbol(&symb.0);
+            let from = raw::Symbol(directive.arguments[1].as_symbol().unwrap().0.clone());
             for v in ctx.get_word_list(name).unwrap() {
-                let l = language.add_or_get_literal(v);
-                language.add_production(s, 1, &[l]);
+                let l = language.entries.push(
+                    raw::Production{ from:from.clone(), weight:1, to:vec![raw::SymbolOrLiteral::literal(v)]}
+                );
             }
         }
         //TODO: Make this error.
@@ -721,29 +727,30 @@ pub fn apply_directive(
 }
 
 pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Language {
-    let mut language = Language::new();
+    let mut language = raw::Language::new();
     for line in language_raw.lines() {
         match parse::parse_language_line(line) {
             Err(e) => {
                 println!("Unable to parse line '{:?} {:?}'", line, e);
             }
             Ok(parse::Line::Production(p)) => {
-                let s = language.add_or_get_named_symbol(p.from.0);
+                let from = raw::Symbol(p.from.0);
+                let weight = p.weight;
                 for symbols in p.options {
-                    let result: Vec<_> = symbols
+                    let to: Vec<raw::SymbolOrLiteral> = symbols
                         .iter()
-                        .map(|s: &parse::SymbolOrLiteral| -> SymbolId {
+                        .map(|s: &parse::SymbolOrLiteral| -> raw::SymbolOrLiteral {
                             match s {
                                 parse::SymbolOrLiteral::Symbol(s) => {
-                                    language.add_or_get_named_symbol(&s.0)
+                                    raw::SymbolOrLiteral::symbol(&s.0)
                                 }
                                 parse::SymbolOrLiteral::Literal(s) => {
-                                    language.add_or_get_literal(s)
+                                    raw::SymbolOrLiteral::literal(s)
                                 }
                             }
                         })
                         .collect();
-                    language.add_production(s, p.weight.0, &result);
+                    language.entries.push( raw::Production { from:from.clone(), weight:weight.0, to });
                 }
             }
             Ok(parse::Line::Directive(d)) => {
@@ -751,7 +758,7 @@ pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Language {
             }
         }
     }
-    language
+    Language::from_raw(&language)
 }
 
 #[cfg(test)]

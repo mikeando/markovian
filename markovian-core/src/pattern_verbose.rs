@@ -5,13 +5,25 @@ use std::collections::BTreeMap;
 pub struct SymbolId(u32);
 
 mod raw {
-    #[derive(Debug,Clone)]
+    #[derive(Debug,Clone, PartialEq, Eq)]
     pub struct Symbol(pub String);
 
-    #[derive(Debug,Clone)]
+    impl Symbol {
+        pub fn new<T:Into<String>>(v:T) -> Self {
+            Symbol(v.into())
+        }
+    }
+
+    #[derive(Debug,Clone, PartialEq, Eq)]
     pub struct Literal(pub String);
 
-    #[derive(Debug,Clone)]
+    impl Literal {
+        pub fn new<T:Into<String>>(v:T) -> Self {
+            Literal(v.into())
+        }
+    }
+
+    #[derive(Debug,Clone, PartialEq, Eq)]
     pub enum SymbolOrLiteral {
         Symbol(Symbol),
         Literal(Literal)
@@ -19,14 +31,14 @@ mod raw {
 
     impl SymbolOrLiteral {
         pub fn literal<T:Into<String>>(v:T) -> Self {
-            SymbolOrLiteral::Literal(Literal(v.into()))
+            SymbolOrLiteral::Literal(Literal::new(v))
         }
         pub fn symbol<T:Into<String>>(v:T) -> Self {
-            SymbolOrLiteral::Symbol(Symbol(v.into()))
+            SymbolOrLiteral::Symbol(Symbol::new(v))
         }
     }
 
-    #[derive(Debug,Clone)]
+    #[derive(Debug,Clone, PartialEq, Eq)]
     pub struct Production {
         pub from:Symbol,
         pub weight:u32,
@@ -726,7 +738,7 @@ pub fn apply_directive(
     }
 }
 
-pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Language {
+pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> raw::Language {
     let mut language = raw::Language::new();
     for line in language_raw.lines() {
         match parse::parse_language_line(line) {
@@ -758,7 +770,7 @@ pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Language {
             }
         }
     }
-    Language::from_raw(&language)
+    language
 }
 
 #[cfg(test)]
@@ -766,7 +778,7 @@ mod tests {
     use super::*;
     use rand::thread_rng;
 
-    fn dummy_language() -> Language {
+    fn dummy_language() -> raw::Language {
         let rules = r#"2 tofu => "tofu"
                1 tofu => tofu " " tofu
                3 tofu => "I like to eat " tofu"#;
@@ -775,7 +787,7 @@ mod tests {
         load_language(rules, &mut ctx)
     }
 
-    fn towns_language_mod() -> Language {
+    fn towns_language_mod() -> raw::Language {
         fn dummy_lister(s: String) -> Vec<String> {
             [
                 "borough", "city", "fort", "hamlet", "parish", "town", "township", "village",
@@ -888,7 +900,7 @@ mod tests {
         load_language(rules, &mut ctx)
     }
 
-    fn towns_language() -> Language {
+    fn towns_language() -> raw::Language {
         let rules = r#"1 town => town_x
                1 town => preword " " town_x
                1 preword => "new"
@@ -1012,6 +1024,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let language = towns_language_mod();
+        let language = Language::from_raw(&language);
         let language = language.remap_literals(|v| format!("{}|", v));
         let s1 = language.token_by_name("town").unwrap();
         for _i in 0..10 {
@@ -1060,6 +1073,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let language = dummy_language();
+        let language = Language::from_raw(&language);
         let s1 = language.token_by_name("tofu").unwrap();
         for _i in 0..10 {
             let v = language.expand(&[s1], &mut rng);
@@ -1203,9 +1217,9 @@ mod tests {
 
     #[test]
     fn tokenize_string() {
-        let rule = r#" "astring" XXX"#;
+        let rule = r#" "a string" XXX"#;
         let (s, rest) = parse::parse_string(rule).unwrap();
-        assert_eq!(s, "astring");
+        assert_eq!(s, "a string");
         assert_eq!(rest, "XXX");
     }
 
@@ -1271,72 +1285,26 @@ mod tests {
 
         let mut ctx = EmptyContext;
         let language = load_language(language_raw, &mut ctx);
+        let language = Language::from_raw(&language);
         let mut rng = thread_rng();
         let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng);
         assert_eq!("hello world", s);
     }
 
-    pub fn break_into_productions(language: &Language) -> Vec<(String, Vec<String>)> {
-        let result: Vec<_> = language
-            .productions_by_id
-            .iter()
-            .flat_map(|(k, p): (&SymbolId, &ProductionGroup)| {
-                p.productions
-                    .iter()
-                    .map(move |pp| -> (SymbolId, Production) { (*k, (*pp).clone()) })
-            })
-            .collect();
-        let result: Vec<_> = result
-            .into_iter()
-            .map(|(s, p)| (language.format_symbol(s), p))
-            .collect();
-        let result: Vec<_> = result
-            .into_iter()
-            .map(|(s, p)| {
-                (
-                    s,
-                    p.keys
-                        .iter()
-                        .map(|sid| language.format_symbol(*sid))
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect();
-        result
-    }
-
     #[test]
     fn load_language_alternation() {
-        let language_raw = r#"1 foo => "bar" | "baz" | "zap"
-        "#;
+        use raw::{Production,Symbol, SymbolOrLiteral};
+        let language_raw = r#"1 foo => "bar" | "baz" | "zap""#;
 
         let mut ctx = EmptyContext;
         let language = load_language(language_raw, &mut ctx);
-        println!("{:?}", language);
+
         assert_eq!(
-            language
-                .terminals_by_value
-                .keys()
-                .cloned()
-                .collect::<Vec<String>>(),
-            &["bar", "baz", "zap"]
-        );
-        assert_eq!(
-            language
-                .symbols_by_name
-                .keys()
-                .cloned()
-                .collect::<Vec<String>>(),
-            &["foo"]
-        );
-        assert_eq!(language.productions_by_id.len(), 1);
-        let prodlist = break_into_productions(&language);
-        assert_eq!(
-            prodlist,
+            language.entries,
             vec![
-                ("foo".to_string(), vec!["'bar'".to_string()]),
-                ("foo".to_string(), vec!["'baz'".to_string()]),
-                ("foo".to_string(), vec!["'zap'".to_string()]),
+                Production{ from:Symbol::new("foo"), weight:1, to:vec![SymbolOrLiteral::literal("bar")]},
+                Production{ from:Symbol::new("foo"), weight:1, to:vec![SymbolOrLiteral::literal("baz")]},
+                Production{ from:Symbol::new("foo"), weight:1, to:vec![SymbolOrLiteral::literal("zap")]},
             ]
         );
     }
@@ -1423,6 +1391,8 @@ mod tests {
 
     #[test]
     fn test_parse_language_with_import_list_directive() {
+        use raw::{Production,Symbol, SymbolOrLiteral};
+
         let mut word_lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
         word_lists.insert("Q.txt".to_string(), vec!["Q".to_string(), "R".to_string()]);
         let mut ctx = MockContext { word_lists };
@@ -1430,13 +1400,12 @@ mod tests {
         let language_raw = r#"1 A => "A"
             @import_list("Q.txt" Q)"#;
         let language = load_language(language_raw, &mut ctx);
-        let prodlist = break_into_productions(&language);
         assert_eq!(
-            prodlist,
+            language.entries,
             vec![
-                ("A".to_string(), vec!["'A'".to_string()]),
-                ("Q".to_string(), vec!["'Q'".to_string()]),
-                ("Q".to_string(), vec!["'R'".to_string()])
+                Production{ from:Symbol::new("A"), weight:1, to:vec![SymbolOrLiteral::literal("A")]},
+                Production{ from:Symbol::new("Q"), weight:1, to:vec![SymbolOrLiteral::literal("Q")]},
+                Production{ from:Symbol::new("Q"), weight:1, to:vec![SymbolOrLiteral::literal("R")]},
             ]
         );
     }

@@ -500,19 +500,19 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(aa, bb)| aa * bb).sum()
 }
 
-fn all_symbols(v:&[Vec<Symbol>]) -> Vec<Symbol> {
+fn all_symbols(v: &[Vec<Symbol>]) -> Vec<Symbol> {
     get_symbol_counts(v).keys().cloned().collect()
 }
 
 fn symbol_representations(
-    symbols: &[Symbol], 
-    bigrams: &BTreeMap<(Symbol,Symbol),usize>
+    symbols: &[Symbol],
+    bigrams: &BTreeMap<(Symbol, Symbol), usize>,
 ) -> Vec<Vec<f32>> {
     symbols
-    .iter()
-    .map(|s| repr_for_symbol(s, &symbols, &bigrams))
-    .collect()
-} 
+        .iter()
+        .map(|s| repr_for_symbol(s, &symbols, &bigrams))
+        .collect()
+}
 
 fn analyse_symbol_similarity(input_names: &[Vec<Symbol>]) {
     let symbols = all_symbols(&input_names);
@@ -532,7 +532,7 @@ fn analyse_symbol_similarity(input_names: &[Vec<Symbol>]) {
             let c = dot(ra, rb);
             print!("{0:.2} ", c);
             // We know that sim(x,x) == 1
-            // and sim(x,y) = sim(y,x) so we only need to 
+            // and sim(x,y) = sim(y,x) so we only need to
             // store the entries below the main diagonal.
             if sa < sb {
                 compared.push((c, sa.clone(), sb.clone()));
@@ -569,7 +569,6 @@ fn analyse_symbol_similarity(input_names: &[Vec<Symbol>]) {
         println! {"{} ~ {} : {}", symbolrefs_to_word(&[&x.1], false), symbolrefs_to_word(&[&x.2], false), x.0}
     }
 }
-
 
 fn main() {
     use log::Level::Info;
@@ -701,12 +700,12 @@ fn main() {
         let mut bwd_splice_point_set : BTreeSet<(Symbol,Symbol,Symbol)> = backward_splice_points.keys().cloned().collect();
         let common_splice_points = fwd_splice_point_set.intersection(&bwd_splice_point_set);
 
-        // Now we just pick a common splice point, then pick one of its prefixes and 
+        // Now we just pick a common splice point, then pick one of its prefixes and
         // one of its suffixes, and join them. (Trimming out the common splice point)
 
     }
     */
-    
+
     for _ in 0..opt.count {
         let mut symbs = if let Some(prefix) = opt.prefix.as_ref() {
             let mut p = model.convert_string_to_symbols(prefix);
@@ -739,8 +738,6 @@ fn main() {
         println!("Hello, world!");
     */
 }
-
-
 
 struct PersonId(u64);
 struct HouseId(u64);

@@ -8,54 +8,54 @@ use std::collections::BTreeMap;
 pub struct SymbolId(u32);
 
 mod raw {
-    #[derive(Debug,Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Symbol(pub String);
 
     impl Symbol {
-        pub fn new<T:Into<String>>(v:T) -> Self {
+        pub fn new<T: Into<String>>(v: T) -> Self {
             Symbol(v.into())
         }
     }
 
-    #[derive(Debug,Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Literal(pub String);
 
     impl Literal {
-        pub fn new<T:Into<String>>(v:T) -> Self {
+        pub fn new<T: Into<String>>(v: T) -> Self {
             Literal(v.into())
         }
     }
 
-    #[derive(Debug,Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum SymbolOrLiteral {
         Symbol(Symbol),
-        Literal(Literal)
+        Literal(Literal),
     }
 
     impl SymbolOrLiteral {
-        pub fn literal<T:Into<String>>(v:T) -> Self {
+        pub fn literal<T: Into<String>>(v: T) -> Self {
             SymbolOrLiteral::Literal(Literal::new(v))
         }
-        pub fn symbol<T:Into<String>>(v:T) -> Self {
+        pub fn symbol<T: Into<String>>(v: T) -> Self {
             SymbolOrLiteral::Symbol(Symbol::new(v))
         }
     }
 
-    #[derive(Debug,Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Production {
-        pub from:Symbol,
-        pub weight:u32,
-        pub to:Vec<SymbolOrLiteral>
+        pub from: Symbol,
+        pub weight: u32,
+        pub to: Vec<SymbolOrLiteral>,
     }
 
-    #[derive(Debug,Clone)]
+    #[derive(Debug, Clone)]
     pub struct Language {
-        pub entries:Vec<Production>
+        pub entries: Vec<Production>,
     }
 
     impl Language {
         pub fn new() -> Language {
-            Language { entries:vec![] }
+            Language { entries: vec![] }
         }
     }
 }
@@ -333,53 +333,62 @@ impl Language {
         format!("{:?}", sid)
     }
 
-    pub fn from_raw(raw:&raw::Language) -> Self {
+    pub fn from_raw(raw: &raw::Language) -> Self {
         let mut result = Language::new();
         for p in &raw.entries {
             let from = result.add_or_get_named_symbol(&p.from.0);
-            let prod:Vec<SymbolId> = p.to.iter().map(|q| {
-                match q {
-                    raw::SymbolOrLiteral::Symbol(v) => result.add_or_get_named_symbol(&v.0),
-                    raw::SymbolOrLiteral::Literal(v) => result.add_or_get_literal(&v.0),
-                }
-            }).collect();
+            let prod: Vec<SymbolId> =
+                p.to.iter()
+                    .map(|q| match q {
+                        raw::SymbolOrLiteral::Symbol(v) => result.add_or_get_named_symbol(&v.0),
+                        raw::SymbolOrLiteral::Literal(v) => result.add_or_get_literal(&v.0),
+                    })
+                    .collect();
             result.add_production(from, p.weight, &prod);
         }
         result
     }
 
     pub fn to_raw(&self) -> raw::Language {
-        let x:Vec<(String, &ProductionGroup)> = self.productions_by_id
+        let x: Vec<(String, &ProductionGroup)> = self
+            .productions_by_id
             .iter()
-            .map( |(k,v)| (self.format_symbol(*k), v))
+            .map(|(k, v)| (self.format_symbol(*k), v))
             .collect();
-        let y:Vec<(String, Production)> = 
-            x.iter()
-            .flat_map(|(k,g)| g.productions.iter().map(move |v| (k.clone(),v.clone())) )
+        let y: Vec<(String, Production)> = x
+            .iter()
+            .flat_map(|(k, g)| g.productions.iter().map(move |v| (k.clone(), v.clone())))
             .collect();
-        let z:Vec<(String, u32, Vec<SymbolId>)> = 
-            y.iter()
-            .map(|(k,v)| (k.clone(), v.weight, v.keys.clone()))
+        let z: Vec<(String, u32, Vec<SymbolId>)> = y
+            .iter()
+            .map(|(k, v)| (k.clone(), v.weight, v.keys.clone()))
             .collect();
-        let mut entries:Vec<raw::Production> = vec![];
+        let mut entries: Vec<raw::Production> = vec![];
         for e in z {
             let from = raw::Symbol(e.0);
             let weight = e.1;
-            let to:Option<Vec<_>> = e.2.into_iter().map(|vid| {
-                let s = self.symbols_by_name.iter().find(|(k,id)| **id==vid).map(|(k,id)| k);
-                if let Some(s) = s {
-                    return Some(raw::SymbolOrLiteral::symbol(s))
-                }
-                self.terminals_by_id.get(&vid).cloned().map(raw::SymbolOrLiteral::literal)
-            }).collect();
+            let to: Option<Vec<_>> =
+                e.2.into_iter()
+                    .map(|vid| {
+                        let s = self
+                            .symbols_by_name
+                            .iter()
+                            .find(|(k, id)| **id == vid)
+                            .map(|(k, id)| k);
+                        if let Some(s) = s {
+                            return Some(raw::SymbolOrLiteral::symbol(s));
+                        }
+                        self.terminals_by_id
+                            .get(&vid)
+                            .cloned()
+                            .map(raw::SymbolOrLiteral::literal)
+                    })
+                    .collect();
             let to = to.unwrap();
-            entries.push(
-                raw::Production{ from, weight, to }
-            )
+            entries.push(raw::Production { from, weight, to })
         }
         raw::Language { entries }
     }
-
 }
 
 pub mod parse {
@@ -716,7 +725,7 @@ impl Context for EmptyContext {
         Err(ContextError::InvalidOperation)
     }
     fn get_language(&self, name: &str) -> Result<raw::Language, ContextError> {
-        Err(ContextError::InvalidOperation) 
+        Err(ContextError::InvalidOperation)
     }
 }
 
@@ -734,18 +743,20 @@ pub fn apply_directive(
             let name = directive.arguments[0].as_literal().unwrap();
             let from = raw::Symbol(directive.arguments[1].as_symbol().unwrap().0.clone());
             for v in ctx.get_word_list(name).unwrap() {
-                language.entries.push(
-                    raw::Production{ from:from.clone(), weight:1, to:vec![raw::SymbolOrLiteral::literal(v)]}
-                );
+                language.entries.push(raw::Production {
+                    from: from.clone(),
+                    weight: 1,
+                    to: vec![raw::SymbolOrLiteral::literal(v)],
+                });
             }
         }
         // import_language( "Foo.lang" )
         "import_language" => {
-            // TODO we should support other modes rather than import everything into the 
+            // TODO we should support other modes rather than import everything into the
             //      root namespace.
             assert_eq!(directive.arguments.len(), 1); //TODO: This should be an error
             let name = directive.arguments[0].as_literal().unwrap();
-            let l:raw::Language = ctx.get_language(name).unwrap();
+            let l: raw::Language = ctx.get_language(name).unwrap();
             for e in l.entries {
                 language.entries.push(e.clone());
             }
@@ -781,7 +792,11 @@ pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> raw::Language
                             }
                         })
                         .collect();
-                    language.entries.push( raw::Production { from:from.clone(), weight:weight.0, to });
+                    language.entries.push(raw::Production {
+                        from: from.clone(),
+                        weight: weight.0,
+                        to,
+                    });
                 }
             }
             Ok(parse::Line::Directive(d)) => {
@@ -807,13 +822,18 @@ mod tests {
     }
 
     fn towns_language_mod() -> raw::Language {
-
         let mut word_lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let ll = &[
             "borough", "city", "fort", "hamlet", "parish", "town", "township", "village",
         ];
-        word_lists.insert("city_types.txt".to_string(), ll.iter().map(|v| v.to_string()).collect() );
-        let mut ctx = MockContext { word_lists, languages:BTreeMap::new() };
+        word_lists.insert(
+            "city_types.txt".to_string(),
+            ll.iter().map(|v| v.to_string()).collect(),
+        );
+        let mut ctx = MockContext {
+            word_lists,
+            languages: BTreeMap::new(),
+        };
 
         let rules = r#"1 town => town_x
             1 town => preword " " town_x
@@ -1311,7 +1331,7 @@ mod tests {
 
     #[test]
     fn load_language_alternation() {
-        use raw::{Production,Symbol, SymbolOrLiteral};
+        use raw::{Production, Symbol, SymbolOrLiteral};
         let language_raw = r#"1 foo => "bar" | "baz" | "zap""#;
 
         let mut ctx = EmptyContext;
@@ -1320,9 +1340,21 @@ mod tests {
         assert_eq!(
             language.entries,
             vec![
-                Production{ from:Symbol::new("foo"), weight:1, to:vec![SymbolOrLiteral::literal("bar")]},
-                Production{ from:Symbol::new("foo"), weight:1, to:vec![SymbolOrLiteral::literal("baz")]},
-                Production{ from:Symbol::new("foo"), weight:1, to:vec![SymbolOrLiteral::literal("zap")]},
+                Production {
+                    from: Symbol::new("foo"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("bar")]
+                },
+                Production {
+                    from: Symbol::new("foo"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("baz")]
+                },
+                Production {
+                    from: Symbol::new("foo"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("zap")]
+                },
             ]
         );
     }
@@ -1410,16 +1442,20 @@ mod tests {
             match self.languages.get(name) {
                 Some(v) => Ok(v.clone()),
                 None => Err(ContextError::InvalidKey),
-    }        }
+            }
+        }
     }
 
     #[test]
     fn test_parse_language_with_import_list_directive() {
-        use raw::{Production,Symbol, SymbolOrLiteral};
+        use raw::{Production, Symbol, SymbolOrLiteral};
 
         let mut word_lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
         word_lists.insert("Q.txt".to_string(), vec!["Q".to_string(), "R".to_string()]);
-        let mut ctx = MockContext { word_lists, languages:BTreeMap::new() };
+        let mut ctx = MockContext {
+            word_lists,
+            languages: BTreeMap::new(),
+        };
 
         let language_raw = r#"1 A => "A"
             @import_list("Q.txt" Q)"#;
@@ -1427,24 +1463,47 @@ mod tests {
         assert_eq!(
             language.entries,
             vec![
-                Production{ from:Symbol::new("A"), weight:1, to:vec![SymbolOrLiteral::literal("A")]},
-                Production{ from:Symbol::new("Q"), weight:1, to:vec![SymbolOrLiteral::literal("Q")]},
-                Production{ from:Symbol::new("Q"), weight:1, to:vec![SymbolOrLiteral::literal("R")]},
+                Production {
+                    from: Symbol::new("A"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("A")]
+                },
+                Production {
+                    from: Symbol::new("Q"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("Q")]
+                },
+                Production {
+                    from: Symbol::new("Q"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("R")]
+                },
             ]
         );
     }
 
     #[test]
     fn test_parse_language_with_import_language_directive() {
-        use raw::{Production,Symbol, SymbolOrLiteral, Language};
+        use raw::{Language, Production, Symbol, SymbolOrLiteral};
 
         let mut languages: BTreeMap<String, Language> = BTreeMap::new();
         let mut l = Language::new();
-        l.entries.push(Production{ from: Symbol::new("A"), weight:2, to:vec![SymbolOrLiteral::literal("Q")]});
-        l.entries.push(Production{ from: Symbol::new("Q"), weight:1, to:vec![SymbolOrLiteral::symbol("A")]});
+        l.entries.push(Production {
+            from: Symbol::new("A"),
+            weight: 2,
+            to: vec![SymbolOrLiteral::literal("Q")],
+        });
+        l.entries.push(Production {
+            from: Symbol::new("Q"),
+            weight: 1,
+            to: vec![SymbolOrLiteral::symbol("A")],
+        });
 
         languages.insert("Q.lang".to_string(), l);
-        let mut ctx = MockContext { word_lists:BTreeMap::new(), languages };
+        let mut ctx = MockContext {
+            word_lists: BTreeMap::new(),
+            languages,
+        };
 
         let language_raw = r#"1 A => "A"
             @import_language("Q.lang")"#;
@@ -1452,9 +1511,21 @@ mod tests {
         assert_eq!(
             language.entries,
             vec![
-                Production{ from:Symbol::new("A"), weight:1, to:vec![SymbolOrLiteral::literal("A")]},
-                Production{ from:Symbol::new("A"), weight:2, to:vec![SymbolOrLiteral::literal("Q")]},
-                Production{ from:Symbol::new("Q"), weight:1, to:vec![SymbolOrLiteral::symbol("A")]},
+                Production {
+                    from: Symbol::new("A"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::literal("A")]
+                },
+                Production {
+                    from: Symbol::new("A"),
+                    weight: 2,
+                    to: vec![SymbolOrLiteral::literal("Q")]
+                },
+                Production {
+                    from: Symbol::new("Q"),
+                    weight: 1,
+                    to: vec![SymbolOrLiteral::symbol("A")]
+                },
             ]
         );
     }

@@ -1,7 +1,6 @@
 use rand::Rng;
 use std::collections::BTreeMap;
 
-// TODO: Merge raw and parse data structures?
 // TODO: Remove all unwraps and use proper error handling.
 
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Default)]
@@ -36,8 +35,23 @@ mod raw {
         pub fn literal<T: Into<String>>(v: T) -> Self {
             SymbolOrLiteral::Literal(Literal::new(v))
         }
+
         pub fn symbol<T: Into<String>>(v: T) -> Self {
             SymbolOrLiteral::Symbol(Symbol::new(v))
+        }
+
+        pub fn as_symbol(&self) -> Option<&Symbol> {
+            match &self {
+                SymbolOrLiteral::Symbol(s) => Some(s),
+                _ => None,
+            }
+        }
+
+        pub fn as_literal(&self) -> Option<&Literal> {
+            match &self {
+                SymbolOrLiteral::Literal(s) => Some(s),
+                _ => None,
+            }
         }
     }
 
@@ -373,8 +387,8 @@ impl Language {
                         let s = self
                             .symbols_by_name
                             .iter()
-                            .find(|(k, id)| **id == vid)
-                            .map(|(k, id)| k);
+                            .find(|(_k, id)| **id == vid)
+                            .map(|(k, _id)| k);
                         if let Some(s) = s {
                             return Some(raw::SymbolOrLiteral::symbol(s));
                         }
@@ -393,6 +407,11 @@ impl Language {
 
 pub mod parse {
 
+    use super::raw;
+    use raw::Production;
+    use raw::Symbol;
+    use raw::SymbolOrLiteral;
+
     #[derive(Debug, PartialEq, Eq)]
     pub enum ParseError<'a> {
         MissingSymbol,
@@ -408,61 +427,6 @@ pub mod parse {
                 ParseError::GeneralError => format!("general error"),
             }
         }
-    }
-
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub struct Weight(pub u32);
-    #[derive(Debug, PartialEq, Eq)]
-    pub struct Symbol(pub String);
-    impl Symbol {
-        pub fn new<T>(v: T) -> Symbol
-        where
-            T: Into<String>,
-        {
-            Symbol(v.into())
-        }
-    }
-    #[derive(Debug, PartialEq, Eq)]
-    pub enum SymbolOrLiteral {
-        Symbol(Symbol),
-        Literal(String),
-    }
-
-    impl SymbolOrLiteral {
-        pub fn symbol<T>(v: T) -> SymbolOrLiteral
-        where
-            T: Into<String>,
-        {
-            SymbolOrLiteral::Symbol(Symbol::new(v))
-        }
-
-        pub fn literal<T>(v: T) -> SymbolOrLiteral
-        where
-            T: Into<String>,
-        {
-            SymbolOrLiteral::Literal(v.into())
-        }
-
-        pub fn as_symbol(&self) -> Option<&Symbol> {
-            match &self {
-                SymbolOrLiteral::Symbol(s) => Some(s),
-                _ => None,
-            }
-        }
-
-        pub fn as_literal(&self) -> Option<&str> {
-            match &self {
-                SymbolOrLiteral::Literal(s) => Some(s),
-                _ => None,
-            }
-        }
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub struct Production {
-        pub weight: Weight,
-        pub from: Symbol,
-        pub options: Vec<Vec<SymbolOrLiteral>>,
     }
 
     pub fn eat_spaces(v: &str) -> Result<((), &str), ParseError> {
@@ -527,12 +491,12 @@ pub mod parse {
         Err(ParseError::GeneralError)
     }
 
-    pub fn parse_weight(v: &str) -> Result<(Weight, &str), ParseError> {
+    pub fn parse_weight(v: &str) -> Result<(u32, &str), ParseError> {
         let (_, rest) = eat_spaces(v)?;
         let (x, rest): (&str, &str) = eat_nonspaces(rest)?;
         let (_, rest) = eat_spaces(rest)?;
         let w: u32 = x.parse::<u32>().map_err(|_| ParseError::GeneralError)?;
-        Ok((Weight(w), rest))
+        Ok((w, rest))
     }
 
     pub fn parse_symbol(v: &str) -> Result<(Symbol, &str), ParseError> {
@@ -624,8 +588,8 @@ pub mod parse {
         Ok((result, rest))
     }
 
-    pub fn parse_production(v: &str) -> Result<(Production, &str), ParseError> {
-        let (weight, rest): (Weight, &str) = parse_weight(v)?;
+    pub fn parse_production(v: &str) -> Result<(Vec<Production>, &str), ParseError> {
+        let (weight, rest): (u32, &str) = parse_weight(v)?;
         let (from, rest): (Symbol, &str) = parse_symbol(rest)?;
         let (_, rest) = parse_tag("=>", rest)?;
 
@@ -651,11 +615,14 @@ pub mod parse {
 
         let (_, rest) = eat_spaces(rest)?;
         Ok((
-            Production {
-                weight,
-                from,
-                options,
-            },
+            options
+                .into_iter()
+                .map(|v| Production {
+                    weight,
+                    from: from.clone(),
+                    to: v,
+                })
+                .collect(),
             rest,
         ))
     }
@@ -685,7 +652,7 @@ pub mod parse {
     }
 
     pub enum Line {
-        Production(Production),
+        MultiProduction(Vec<Production>),
         Directive(Directive),
     }
 
@@ -701,7 +668,7 @@ pub mod parse {
         if let Ok(v) = r {
             let (_, rest) = eat_spaces(v.1).unwrap();
             if rest.is_empty() {
-                return Ok(Line::Production(v.0));
+                return Ok(Line::MultiProduction(v.0));
             }
         }
         Err(ParseError::GeneralError)
@@ -742,7 +709,7 @@ pub fn apply_directive(
             assert_eq!(directive.arguments.len(), 2); // TODO: This should become an error
             let name = directive.arguments[0].as_literal().unwrap();
             let from = raw::Symbol(directive.arguments[1].as_symbol().unwrap().0.clone());
-            for v in ctx.get_word_list(name).unwrap() {
+            for v in ctx.get_word_list(&name.0).unwrap() {
                 language.entries.push(raw::Production {
                     from: from.clone(),
                     weight: 1,
@@ -756,7 +723,7 @@ pub fn apply_directive(
             //      root namespace.
             assert_eq!(directive.arguments.len(), 1); //TODO: This should be an error
             let name = directive.arguments[0].as_literal().unwrap();
-            let l: raw::Language = ctx.get_language(name).unwrap();
+            let l: raw::Language = ctx.get_language(&name.0).unwrap();
             for e in l.entries {
                 language.entries.push(e.clone());
             }
@@ -775,28 +742,9 @@ pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> raw::Language
             Err(e) => {
                 println!("Unable to parse line '{:?} {:?}'", line, e);
             }
-            Ok(parse::Line::Production(p)) => {
-                let from = raw::Symbol(p.from.0);
-                let weight = p.weight;
-                for symbols in p.options {
-                    let to: Vec<raw::SymbolOrLiteral> = symbols
-                        .iter()
-                        .map(|s: &parse::SymbolOrLiteral| -> raw::SymbolOrLiteral {
-                            match s {
-                                parse::SymbolOrLiteral::Symbol(s) => {
-                                    raw::SymbolOrLiteral::symbol(&s.0)
-                                }
-                                parse::SymbolOrLiteral::Literal(s) => {
-                                    raw::SymbolOrLiteral::literal(s)
-                                }
-                            }
-                        })
-                        .collect();
-                    language.entries.push(raw::Production {
-                        from: from.clone(),
-                        weight: weight.0,
-                        to,
-                    });
+            Ok(parse::Line::MultiProduction(p)) => {
+                for production in p {
+                    language.entries.push(production);
                 }
             }
             Ok(parse::Line::Directive(d)) => {
@@ -1149,46 +1097,57 @@ mod tests {
 
     #[test]
     fn tokenize_single_rule() {
+        use raw::Production;
         let rule = r#"3 T => T "bar" Q"#;
-        let (production, _) = parse::parse_production(rule).unwrap();
-        assert_eq!(production.weight.0, 3);
-        assert_eq!(production.from.0, "T");
+        let (productions, _) = parse::parse_production(rule).unwrap();
         assert_eq!(
-            production.options,
-            vec![vec![
-                parse::SymbolOrLiteral::symbol("T"),
-                parse::SymbolOrLiteral::literal("bar"),
-                parse::SymbolOrLiteral::symbol("Q"),
-            ]]
-        )
+            productions,
+            vec![Production {
+                from: raw::Symbol::new("T"),
+                weight: 3,
+                to: vec![
+                    raw::SymbolOrLiteral::symbol("T"),
+                    raw::SymbolOrLiteral::literal("bar"),
+                    raw::SymbolOrLiteral::symbol("Q")
+                ]
+            },]
+        );
     }
 
     #[test]
     fn tokenize_alt_rule() {
+        use raw::Production;
         let rule = r#"3 T => T A | Q B"#;
-        let (production, _) = parse::parse_production(rule).unwrap();
-        assert_eq!(production.weight.0, 3);
-        assert_eq!(production.from.0, "T");
+        let (productions, _) = parse::parse_production(rule).unwrap();
+
         assert_eq!(
-            production.options,
+            productions,
             vec![
-                vec![
-                    parse::SymbolOrLiteral::symbol("T"),
-                    parse::SymbolOrLiteral::symbol("A"),
-                ],
-                vec![
-                    parse::SymbolOrLiteral::symbol("Q"),
-                    parse::SymbolOrLiteral::symbol("B"),
-                ]
+                Production {
+                    from: raw::Symbol::new("T"),
+                    weight: 3,
+                    to: vec![
+                        raw::SymbolOrLiteral::symbol("T"),
+                        raw::SymbolOrLiteral::symbol("A")
+                    ]
+                },
+                Production {
+                    from: raw::Symbol::new("T"),
+                    weight: 3,
+                    to: vec![
+                        raw::SymbolOrLiteral::symbol("Q"),
+                        raw::SymbolOrLiteral::symbol("B")
+                    ]
+                },
             ]
-        )
+        );
     }
 
     #[test]
     fn tokenize_weight() {
         let rule = "3 XXX";
         let (weight, rest) = parse::parse_weight(rule).unwrap();
-        assert_eq!(weight.0, 3);
+        assert_eq!(weight, 3);
         assert_eq!(rest, "XXX");
     }
 
@@ -1196,7 +1155,7 @@ mod tests {
     fn tokenize_symbol() {
         assert_eq!(
             parse::parse_symbol("AX XXX"),
-            Ok((parse::Symbol::new("AX"), "XXX"))
+            Ok((raw::Symbol::new("AX"), "XXX"))
         );
         assert_eq!(
             parse::parse_symbol(""),
@@ -1280,11 +1239,11 @@ mod tests {
     fn parse_symbol_or_literal() {
         assert_eq!(
             parse::parse_symbol_or_literal("tagA XXX"),
-            Ok((parse::SymbolOrLiteral::symbol("tagA"), "XXX"))
+            Ok((raw::SymbolOrLiteral::symbol("tagA"), "XXX"))
         );
         assert_eq!(
             parse::parse_symbol_or_literal(r#" "a string"  XXX"#),
-            Ok((parse::SymbolOrLiteral::literal("a string"), "XXX"))
+            Ok((raw::SymbolOrLiteral::literal("a string"), "XXX"))
         );
     }
 
@@ -1294,8 +1253,8 @@ mod tests {
             parse::parse_symbol_or_literal_list("tagA XXX"),
             Ok((
                 vec![
-                    parse::SymbolOrLiteral::symbol("tagA"),
-                    parse::SymbolOrLiteral::symbol("XXX"),
+                    raw::SymbolOrLiteral::symbol("tagA"),
+                    raw::SymbolOrLiteral::symbol("XXX"),
                 ],
                 ""
             ))
@@ -1305,9 +1264,9 @@ mod tests {
             parse::parse_symbol_or_literal_list(r#" "a string"  XXX "hello" "#),
             Ok((
                 vec![
-                    parse::SymbolOrLiteral::literal("a string"),
-                    parse::SymbolOrLiteral::symbol("XXX"),
-                    parse::SymbolOrLiteral::literal("hello"),
+                    raw::SymbolOrLiteral::literal("a string"),
+                    raw::SymbolOrLiteral::symbol("XXX"),
+                    raw::SymbolOrLiteral::literal("hello"),
                 ],
                 ""
             ))
@@ -1371,14 +1330,14 @@ mod tests {
     #[test]
     fn parse_symbol_with_underscore() {
         let e = parse::parse_symbol("a_b def").unwrap();
-        assert_eq!(e, (parse::Symbol("a_b".to_string()), "def"));
+        assert_eq!(e, (raw::Symbol("a_b".to_string()), "def"));
     }
 
     #[test]
     fn parse_symbol_simple() {
         assert_eq!(
             parse::parse_symbol("XXX"),
-            Ok((parse::Symbol::new("XXX"), ""))
+            Ok((raw::Symbol::new("XXX"), ""))
         );
     }
 
@@ -1386,14 +1345,14 @@ mod tests {
     fn parse_symbol_or_literal_simple() {
         assert_eq!(
             parse::parse_symbol_or_literal("XXX"),
-            Ok((parse::SymbolOrLiteral::symbol("XXX"), ""))
+            Ok((raw::SymbolOrLiteral::symbol("XXX"), ""))
         );
     }
 
     #[test]
     fn parse_symbol_ends_at_bracket() {
         let e = parse::parse_symbol("abc(def").unwrap();
-        assert_eq!(e, (parse::Symbol("abc".to_string()), "(def"));
+        assert_eq!(e, (raw::Symbol("abc".to_string()), "(def"));
     }
 
     #[test]
@@ -1404,8 +1363,8 @@ mod tests {
             parse::Directive {
                 name: "import_list".to_string(),
                 arguments: vec![
-                    parse::SymbolOrLiteral::literal("city_types.txt"),
-                    parse::SymbolOrLiteral::symbol("settlement_type")
+                    raw::SymbolOrLiteral::literal("city_types.txt"),
+                    raw::SymbolOrLiteral::symbol("settlement_type")
                 ]
             },
             directive

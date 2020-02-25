@@ -53,6 +53,17 @@ mod raw {
                 _ => None,
             }
         }
+
+        pub fn map_literal<F,E>(self, f: F) -> Result<SymbolOrLiteral,E>
+        where
+            F: Fn(String) -> Result<String,E>,
+        {
+            let r = match self {
+                SymbolOrLiteral::Symbol(_) => self,
+                SymbolOrLiteral::Literal(Literal(v)) => SymbolOrLiteral::literal(f(v)?),
+            };
+            Ok(r)
+        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +71,20 @@ mod raw {
         pub from: Symbol,
         pub weight: u32,
         pub to: Vec<SymbolOrLiteral>,
+    }
+
+    impl Production {
+        pub fn map_literals<F,E>(self, f: F) -> Result<Production,E>
+        where
+            F: Fn(String) -> Result<String,E>,
+        {
+            let mut result = self;
+            result.to = result.to
+                .into_iter()
+                .map( |s| s.map_literal(&f) )
+                .collect::<Result<_,_>>()?;
+            Ok(result)
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -70,6 +95,20 @@ mod raw {
     impl Language {
         pub fn new() -> Language {
             Language { entries: vec![] }
+        }
+
+        pub fn map_literals<F,E>(self, f: F) -> Result<Language,E>
+        where
+            F: Fn(String) -> Result<String,E>,
+        {
+            let mut result = self;
+            result.entries = result.entries
+                .into_iter()
+                .map(
+                    |p| p.map_literals(&f)
+                )
+                .collect::<Result<_,_>>()?;
+            Ok(result)
         }
     }
 }
@@ -86,15 +125,6 @@ impl Production {
             weight,
             keys: keys.to_vec(),
         }
-    }
-
-    pub fn reindex_symbols<F>(self, f: F) -> Production
-    where
-        F: Fn(SymbolId) -> SymbolId,
-    {
-        let mut result = self;
-        result.keys = result.keys.into_iter().map(|v| f(v)).collect();
-        result
     }
 }
 
@@ -149,19 +179,6 @@ impl ProductionGroup {
 
     pub fn add(&mut self, p: Production) {
         self.productions.push(p);
-    }
-
-    pub fn reindex_symbols<F>(self, f: F) -> ProductionGroup
-    where
-        F: Fn(SymbolId) -> SymbolId,
-    {
-        let mut result = self;
-        result.productions = result
-            .productions
-            .into_iter()
-            .map(|v| v.reindex_symbols(&f))
-            .collect();
-        result
     }
 }
 
@@ -268,24 +285,9 @@ impl Language {
         complete
     }
 
-    pub fn remap_literals<F>(self, f: F) -> Language
-    where
-        F: Fn(String) -> String,
-    {
-        let mut result = self;
-        result.terminals_by_id = result
-            .terminals_by_id
-            .into_iter()
-            .map(|(id, v)| (id, f(v)))
-            .collect();
-        result.terminals_by_value = result
-            .terminals_by_value
-            .into_iter()
-            .map(|(v, id)| (f(v), id))
-            .collect();
-        result
-    }
 
+
+    //TODO: This really is only needed at the raw level. It's also simpler there.
     pub fn rename_symbols<F>(self, f: F) -> Language
     where
         F: Fn(String) -> String,
@@ -296,44 +298,6 @@ impl Language {
             .into_iter()
             .map(|(k, v)| (f(k), v))
             .collect();
-        result
-    }
-
-    pub fn reindex_symbols<F>(self, f: F) -> Language
-    where
-        F: Fn(SymbolId) -> SymbolId,
-    {
-        let mut result = self;
-        result.terminals_by_id = result
-            .terminals_by_id
-            .into_iter()
-            .map(|(id, v)| (f(id), v))
-            .collect();
-        result.terminals_by_value = result
-            .terminals_by_value
-            .into_iter()
-            .map(|(v, id)| (v, f(id)))
-            .collect();
-        result.symbols_by_name = result
-            .symbols_by_name
-            .into_iter()
-            .map(|(v, id)| (v, f(id)))
-            .collect();
-        result.productions_by_id = result
-            .productions_by_id
-            .into_iter()
-            .map(|(id, v)| (f(id), v.reindex_symbols(&f)))
-            .collect();
-
-        let max_id = std::iter::once(0u32)
-            .chain(result.terminals_by_id.iter().map(|(id, _)| id.0))
-            .chain(result.terminals_by_value.iter().map(|(_, id)| id.0))
-            .chain(result.symbols_by_name.iter().map(|(_, id)| id.0))
-            .chain(result.productions_by_id.iter().map(|(id, _)| id.0))
-            .max()
-            .unwrap();
-
-        result.last_id = SymbolId(max_id);
         result
     }
 
@@ -1010,8 +974,8 @@ mod tests {
         let mut rng = thread_rng();
 
         let language = towns_language_mod();
+        let language = language.map_literals(|v|->Result<String,()> {Ok(format!("{}|", v))}).unwrap();
         let language = Language::from_raw(&language);
-        let language = language.remap_literals(|v| format!("{}|", v));
         let s1 = language.token_by_name("town").unwrap();
         for _i in 0..10 {
             let v = language.expand(&[s1], &mut rng);

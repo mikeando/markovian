@@ -102,6 +102,7 @@ mod raw {
             F: Fn(String) -> Result<String,E>,
         {
             let mut result = self;
+            result.from = Symbol::new(f(result.from.0)?);
             result.to = result.to
                 .into_iter()
                 .map( |s| s.map_symbol(&f) )

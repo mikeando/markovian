@@ -233,16 +233,6 @@ impl Language {
         self.symbols_by_name.get(&v.into()).cloned()
     }
 
-    pub fn add_terminal_production<T: Into<String>>(
-        &mut self,
-        symbol_id: SymbolId,
-        weight: u32,
-        v: T,
-    ) {
-        let symbol = self.add_or_get_literal(v);
-        self.add_production(symbol_id, weight, &[symbol])
-    }
-
     pub fn add_production(&mut self, symbol_id: SymbolId, weight: u32, keys: &[SymbolId]) {
         self.productions_by_id
             .entry(symbol_id)

@@ -207,15 +207,6 @@ impl Language {
         self.last_id
     }
 
-    pub fn terminal<T: Into<String>>(&mut self, v: T) -> SymbolId {
-        //TODO: Check if it already exists in the list.
-        let symbol = self.new_symbol();
-        let value: String = v.into();
-        self.terminals_by_value.insert(value.clone(), symbol);
-        self.terminals_by_id.insert(symbol, value);
-        symbol
-    }
-
     pub fn add_or_get_named_symbol<T: Into<String>>(&mut self, v: T) -> SymbolId {
         let s: String = v.into();
 
@@ -248,7 +239,7 @@ impl Language {
         weight: u32,
         v: T,
     ) {
-        let symbol = self.terminal(v);
+        let symbol = self.add_or_get_literal(v);
         self.add_production(symbol_id, weight, &[symbol])
     }
 
@@ -997,7 +988,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut language = Language::new();
-        let s1 = language.terminal("hello");
+        let s1 = language.add_or_get_literal("hello");
         let r = language.expand(&[s1], &mut rng);
         assert_eq!("hello", r);
     }
@@ -1007,9 +998,9 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut language = Language::new();
-        let hello = language.terminal("hello");
-        let space = language.terminal(" ");
-        let world = language.terminal("world");
+        let hello = language.add_or_get_literal("hello");
+        let space = language.add_or_get_literal(" ");
+        let world = language.add_or_get_literal("world");
         let r = language.expand(&[hello, space, world], &mut rng);
         assert_eq!("hello world", r);
         let hello_world = language.new_symbol();

@@ -64,6 +64,17 @@ mod raw {
             };
             Ok(r)
         }
+
+        pub fn map_symbol<F,E>(self, f: F) -> Result<SymbolOrLiteral,E>
+        where
+            F: Fn(String) -> Result<String,E>,
+        {
+            let r = match self {
+                SymbolOrLiteral::Symbol(Symbol(v)) => SymbolOrLiteral::symbol(f(v)?),
+                SymbolOrLiteral::Literal(_) => self,
+            };
+            Ok(r)
+        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +93,18 @@ mod raw {
             result.to = result.to
                 .into_iter()
                 .map( |s| s.map_literal(&f) )
+                .collect::<Result<_,_>>()?;
+            Ok(result)
+        }
+
+        pub fn map_symbols<F,E>(self, f: F) -> Result<Production,E>
+        where
+            F: Fn(String) -> Result<String,E>,
+        {
+            let mut result = self;
+            result.to = result.to
+                .into_iter()
+                .map( |s| s.map_symbol(&f) )
                 .collect::<Result<_,_>>()?;
             Ok(result)
         }
@@ -106,6 +129,20 @@ mod raw {
                 .into_iter()
                 .map(
                     |p| p.map_literals(&f)
+                )
+                .collect::<Result<_,_>>()?;
+            Ok(result)
+        }
+
+        pub fn map_symbols<F,E>(self, f: F) -> Result<Language,E>
+        where
+            F: Fn(String) -> Result<String,E>,
+        {
+            let mut result = self;
+            result.entries = result.entries
+                .into_iter()
+                .map(
+                    |p| p.map_symbols(&f)
                 )
                 .collect::<Result<_,_>>()?;
             Ok(result)
@@ -268,19 +305,7 @@ impl Language {
 
 
 
-    //TODO: This really is only needed at the raw level. It's also simpler there.
-    pub fn rename_symbols<F>(self, f: F) -> Language
-    where
-        F: Fn(String) -> String,
-    {
-        let mut result = self;
-        result.symbols_by_name = result
-            .symbols_by_name
-            .into_iter()
-            .map(|(k, v)| (f(k), v))
-            .collect();
-        result
-    }
+
 
     pub fn format_symbol(&self, sid: SymbolId) -> String {
         if let Some(v) = self.terminals_by_id.get(&sid) {

@@ -402,9 +402,13 @@ pub mod parse {
 
     pub fn eat_spaces(v: &str) -> Result<((), &str), ParseError> {
         let mut rest = v;
-        //TODO: This should really work on chars..
-        while !rest.is_empty() && (&rest[0..1] == " " || &rest[0..1] == "\t") {
-            rest = &rest[1..];
+        let mut it = v.chars();
+        while let Some(r) = it.next() {
+            if r.is_whitespace() {
+                rest = it.as_str()
+            } else {
+                break
+            }
         }
         Ok(((), rest))
     }
@@ -1154,6 +1158,18 @@ mod tests {
         let rule = "⇄es";
         let (_, rest) = parse::take_char('⇄', rule).unwrap();
         assert_eq!(rest, "es");
+    }
+
+    #[test]
+    fn test_eat_spaces_works_on_multibyte_string() {
+        assert_eq!(parse::eat_spaces("⇄"), Ok(((),"⇄")));
+        assert_eq!(parse::eat_spaces(" ⇄"), Ok(((),"⇄")));
+    }
+
+    #[test]
+    fn test_eat_spaces_works_on_symbol_then_space_then_symbol() {
+        assert_eq!(parse::eat_spaces("A B"), Ok(((),"A B")));
+        assert_eq!(parse::eat_spaces(" A B"), Ok(((),"A B")));
     }
 
     #[test]

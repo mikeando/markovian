@@ -245,7 +245,7 @@ pub struct Language {
 }
 
 impl Language {
-    pub fn new() -> Language {
+    fn new() -> Language {
         Language {
             terminals_by_value: BTreeMap::new(),
             terminals_by_id: BTreeMap::new(),
@@ -1092,20 +1092,46 @@ mod tests {
         assert_eq!(false, true);
     }
 
+    fn prod_symbols(from: &str, to: &[&str]) -> raw::Production {
+        raw::Production {
+            from: raw::Symbol::new(from),
+            weight: 1,
+            to: to
+                .iter()
+                .map(|s| raw::SymbolOrLiteral::symbol(*s))
+                .collect(),
+        }
+    }
+
+    fn prod_literals(from: &str, to: &[&str]) -> raw::Production {
+        raw::Production {
+            from: raw::Symbol::new(from),
+            weight: 1,
+            to: to
+                .iter()
+                .map(|s| raw::SymbolOrLiteral::literal(*s))
+                .collect(),
+        }
+    }
+
     #[test]
     fn test_register_token() {
-        let mut language = Language::new();
-        let s1 = language.add_or_get_named_symbol("a_symbol");
-        assert_eq!(Some(s1), language.token_by_name("a_symbol"));
+        let raw = raw::Language {
+            entries: vec![prod_symbols("a_symbol", &[])],
+        };
+        let language = Language::from_raw(&raw).unwrap();
+        assert!(language.token_by_name("a_symbol").is_some());
         assert_eq!(None, language.token_by_name("no_such_symbol"));
     }
 
     #[test]
     fn test_simplest_language() {
         let mut rng = thread_rng();
-
-        let mut language = Language::new();
-        let s1 = language.add_or_get_literal("hello");
+        let raw = raw::Language {
+            entries: vec![prod_literals("A", &["hello"])],
+        };
+        let language = Language::from_raw(&raw).unwrap();
+        let s1 = language.token_by_name("A").unwrap();
         let r = language.expand(&[s1], &mut rng).unwrap();
         assert_eq!("hello", r);
     }
@@ -1113,16 +1139,17 @@ mod tests {
     #[test]
     fn test_next_simplest_language() {
         let mut rng = thread_rng();
-
-        let mut language = Language::new();
-        let hello = language.add_or_get_literal("hello");
-        let space = language.add_or_get_literal(" ");
-        let world = language.add_or_get_literal("world");
-        let r = language.expand(&[hello, space, world], &mut rng).unwrap();
-        assert_eq!("hello world", r);
-        let hello_world = language.new_symbol();
-        language.add_production(hello_world, 1, &[hello, space, world]);
-        let r = language.expand(&[hello_world], &mut rng).unwrap();
+        let raw = raw::Language {
+            entries: vec![
+                prod_symbols("A", &["hello", "space", "world"]),
+                prod_literals("hello", &["hello"]),
+                prod_literals("space", &[" "]),
+                prod_literals("world", &["world"]),
+            ],
+        };
+        let language = Language::from_raw(&raw).unwrap();
+        let A = language.token_by_name("A").unwrap();
+        let r = language.expand(&[A], &mut rng).unwrap();
         assert_eq!("hello world", r);
     }
 

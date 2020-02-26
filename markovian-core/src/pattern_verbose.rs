@@ -642,14 +642,14 @@ pub mod parse {
     pub fn parse_language_line(line: &str) -> Result<Line, ParseError> {
         let r = parse_directive(line);
         if let Ok(v) = r {
-            let (_, rest) = eat_spaces(v.1).unwrap();
+            let (_, rest) = eat_spaces(v.1)?;
             if rest.is_empty() {
                 return Ok(Line::Directive(v.0));
             }
         }
         let r = parse_production(line);
         if let Ok(v) = r {
-            let (_, rest) = eat_spaces(v.1).unwrap();
+            let (_, rest) = eat_spaces(v.1)?;
             if rest.is_empty() {
                 return Ok(Line::MultiProduction(v.0));
             }
@@ -679,51 +679,68 @@ impl Context for EmptyContext {
     }
 }
 
+//TODO: Create more informative error types?
+#[derive(Debug, PartialEq, Eq)]
+pub enum DirectiveError {
+    GeneralError
+}
+
 pub fn apply_directive(
     language: &mut raw::Language,
     directive: &parse::Directive,
     ctx: &mut dyn Context,
-) {
+) -> Result<(), DirectiveError> {
     println!("Applying directive : {:?}", directive);
     match &directive.name[..] {
         // import_list( "Name.txt" Symbol )
         "import_list" => {
             println!("args = {:?}", directive.arguments);
             assert_eq!(directive.arguments.len(), 2); // TODO: This should become an error
-            let name = directive.arguments[0].as_literal().unwrap();
-            let from = raw::Symbol(directive.arguments[1].as_symbol().unwrap().0.clone());
-            for v in ctx.get_word_list(&name.0).unwrap() {
+            let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;
+            let from = raw::Symbol(directive.arguments[1].as_symbol().ok_or_else(|| DirectiveError::GeneralError)?.0.clone());
+            for v in ctx.get_word_list(&name.0).map_err(|_e| DirectiveError::GeneralError)? {
                 language.entries.push(raw::Production {
                     from: from.clone(),
                     weight: 1,
                     to: vec![raw::SymbolOrLiteral::literal(v)],
                 });
             }
+            Ok(())
         }
         // import_language( "Foo.lang" )
         "import_language" => {
             // TODO we should support other modes rather than import everything into the
             //      root namespace.
             assert_eq!(directive.arguments.len(), 1); //TODO: This should be an error
-            let name = directive.arguments[0].as_literal().unwrap();
-            let l: raw::Language = ctx.get_language(&name.0).unwrap();
+            let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;;
+            let l: raw::Language = ctx.get_language(&name.0).map_err(|_e| DirectiveError::GeneralError)?;
             for e in l.entries {
                 language.entries.push(e.clone());
             }
+            Ok(())
         }
-        //TODO: Make this error.
         _ => {
             println!("Unknown directive: {:?}", directive.name);
+            Err(DirectiveError::GeneralError)
         }
     }
 }
 
-pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> raw::Language {
+#[derive(Debug,PartialEq,Eq)]
+pub enum LoadLanguageError {
+    GeneralError,
+    //TODO: Add more information to this type
+    InvalidLine,
+    DirectiveError(DirectiveError),
+}
+
+pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Result<raw::Language, LoadLanguageError> {
     let mut language = raw::Language::new();
     for line in language_raw.lines() {
         match parse::parse_language_line(line) {
             Err(e) => {
                 println!("Unable to parse line '{:?} {:?}'", line, e);
+                return Err(LoadLanguageError::InvalidLine);
             }
             Ok(parse::Line::MultiProduction(p)) => {
                 for production in p {
@@ -731,11 +748,11 @@ pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> raw::Language
                 }
             }
             Ok(parse::Line::Directive(d)) => {
-                apply_directive(&mut language, &d, ctx);
+                apply_directive(&mut language, &d, ctx).map_err(LoadLanguageError::DirectiveError)?;
             }
         }
     }
-    language
+    Ok(language)
 }
 
 #[cfg(test)]
@@ -749,7 +766,7 @@ mod tests {
                3 tofu => "I like to eat " tofu"#;
 
         let mut ctx = EmptyContext;
-        load_language(rules, &mut ctx)
+        load_language(rules, &mut ctx).unwrap()
     }
 
     fn towns_language_mod() -> raw::Language {
@@ -866,7 +883,7 @@ mod tests {
         //TODO: Add jobs
         //TODO: Add seasons
 
-        load_language(rules, &mut ctx)
+        load_language(rules, &mut ctx).unwrap()
     }
 
     fn towns_language() -> raw::Language {
@@ -985,7 +1002,7 @@ mod tests {
         //TODO: Add seasons
 
         let mut ctx = EmptyContext;
-        load_language(rules, &mut ctx)
+        load_language(rules, &mut ctx).unwrap()
     }
 
     #[test]
@@ -1276,7 +1293,7 @@ mod tests {
            1 hw => hello space world"#;
 
         let mut ctx = EmptyContext;
-        let language = load_language(language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx).unwrap();
         let language = Language::from_raw(&language);
         let mut rng = thread_rng();
         let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng).unwrap();
@@ -1289,7 +1306,7 @@ mod tests {
         let language_raw = r#"1 foo => "bar" | "baz" | "zap""#;
 
         let mut ctx = EmptyContext;
-        let language = load_language(language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx).unwrap();
 
         assert_eq!(
             language.entries,
@@ -1413,7 +1430,7 @@ mod tests {
 
         let language_raw = r#"1 A => "A"
             @import_list("Q.txt" Q)"#;
-        let language = load_language(language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx).unwrap();
         assert_eq!(
             language.entries,
             vec![
@@ -1461,7 +1478,7 @@ mod tests {
 
         let language_raw = r#"1 A => "A"
             @import_language("Q.lang")"#;
-        let language = load_language(language_raw, &mut ctx);
+        let language = load_language(language_raw, &mut ctx).unwrap();
         assert_eq!(
             language.entries,
             vec![

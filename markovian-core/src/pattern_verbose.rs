@@ -1,7 +1,6 @@
 use rand::Rng;
 use std::collections::BTreeMap;
-
-// TODO: Remove all unwraps and use proper error handling.
+use std::collections::BTreeSet;
 
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Default)]
 pub struct SymbolId(u32);
@@ -220,14 +219,20 @@ impl ProductionGroup {
     }
 }
 
+//TODO: These really do indicate behaviour that should be caught at the point at which a raw 
+// Language is converted into a compiled language. And so could become asserts.
+// In the compile stage both really corrspond to the case where a Symbol appears in the from part
+// of a production, but doesn't have any corresponding productions.SymbolId
 #[derive(Debug, Eq, PartialEq)]
 pub enum ExpansionError {
-    GeneralError
+    InvalidSymbolId(SymbolId),
+    MissingExpansion(SymbolId),
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ConversionError {
-    GeneralError
+    GeneralError,
+    MissingExpansions(BTreeSet<String>),
 }
 
 #[derive(Debug, Default)]
@@ -304,8 +309,8 @@ impl Language {
                 complete = format!("{}{}", complete, s);
             } else {
                 //TODO: Differentiate between these errors and give a better message
-                let pg = self.productions_by_id.get(&token).ok_or_else(|| ExpansionError::GeneralError)?;
-                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight).ok_or_else(|| ExpansionError::GeneralError)?;
+                let pg = self.productions_by_id.get(&token).ok_or_else(|| ExpansionError::InvalidSymbolId(token))?;
+                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight).ok_or_else(|| ExpansionError::MissingExpansion(token))?;
                 expansion_stack.push(&p.keys);
             }
         }
@@ -322,9 +327,37 @@ impl Language {
         format!("{:?}", sid)
     }
 
-    pub fn from_raw(raw: &raw::Language) -> Self {
+    //TODO: There should be no other way to create a Language other than from a
+    //      raw::Language!
+    pub fn from_raw(raw: &raw::Language) -> Result<Self,ConversionError> {
+
+        // Check that language is sane 
+        // At the moment that just means having all symbols
+        // correspond to a production with non-zero weight
+        // TODO: Probably should have raw::Language::from_symbols()
+        //       and to_symbols() and derive what we need to actually 
+        //       use BTreeSet<raw::Symbol>.
+        // TODO: Probably can hoist all of this check into raw::Language
+        //       so that this becomes `raw.check_complete()?` or similar.
+        {
+            let mut from_symbols:BTreeSet<String> = BTreeSet::new();
+            let mut to_symbols:BTreeSet<String> = BTreeSet::new();
+
+            for p in &raw.entries {
+                if p.weight == 0 { continue }
+                from_symbols.insert(p.from.0.clone());
+                for s in p.to.iter().filter_map( |s| s.as_symbol() ) {
+                    to_symbols.insert(s.0.clone());
+                }
+            }
+            if !to_symbols.is_subset(&from_symbols) {
+                return Err(ConversionError::MissingExpansions(&to_symbols - &from_symbols));
+            }
+        }
+
         let mut result = Language::new();
         for p in &raw.entries {
+            if p.weight == 0 { continue }
             let from = result.add_or_get_named_symbol(&p.from.0);
             let prod: Vec<SymbolId> =
                 p.to.iter()
@@ -335,7 +368,7 @@ impl Language {
                     .collect();
             result.add_production(from, p.weight, &prod);
         }
-        result
+        Ok(result)
     }
 
     pub fn to_raw(&self) -> Result<raw::Language, ConversionError> {
@@ -1014,7 +1047,7 @@ mod tests {
 
         let language = towns_language_mod();
         let language = language.map_literals(|v|->Result<String,()> {Ok(format!("{}|", v))}).unwrap();
-        let language = Language::from_raw(&language);
+        let language = Language::from_raw(&language).unwrap();
         let s1 = language.token_by_name("town").unwrap();
         for _i in 0..10 {
             let v = language.expand(&[s1], &mut rng);
@@ -1062,7 +1095,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let language = dummy_language();
-        let language = Language::from_raw(&language);
+        let language = Language::from_raw(&language).unwrap();
         let s1 = language.token_by_name("tofu").unwrap();
         for _i in 0..10 {
             let v = language.expand(&[s1], &mut rng).unwrap();
@@ -1297,7 +1330,7 @@ mod tests {
 
         let mut ctx = EmptyContext;
         let language = load_language(language_raw, &mut ctx).unwrap();
-        let language = Language::from_raw(&language);
+        let language = Language::from_raw(&language).unwrap();
         let mut rng = thread_rng();
         let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng).unwrap();
         assert_eq!("hello world", s);
@@ -1512,10 +1545,15 @@ mod tests {
                     from:raw::Symbol::new("A"),
                     weight:1,
                     to:vec![raw::SymbolOrLiteral::symbol("B"), raw::SymbolOrLiteral::literal("X")]
-                }
+                },
+                raw::Production{
+                    from:raw::Symbol::new("B"),
+                    weight:1,
+                    to:vec![raw::SymbolOrLiteral::literal("Y")]
+                }, 
             ]
         };
-        let compiled = Language::from_raw(&initial);
+        let compiled = Language::from_raw(&initial).unwrap();
         let reverted = compiled.to_raw().unwrap();
         assert_eq!(initial.entries, reverted.entries);
     }

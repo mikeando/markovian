@@ -182,20 +182,20 @@ where
 pub fn choose_by_weight<'a, R: SimpleRNG, T, F>(
     rng: &mut R,
     values: &'a [T],
-    weightfn: &F,
+    weight_fn: &F,
 ) -> Option<&'a T>
 where
     R: SimpleRNG,
     F: Fn(&T) -> u32,
 {
-    let sum_w: u32 = values.iter().map(weightfn).sum();
+    let sum_w: u32 = values.iter().map(weight_fn).sum();
     if sum_w == 0 {
         return None;
     }
     let r = rng.gen_range(0, sum_w);
     let mut s: u32 = 0;
     for v in values {
-        s += weightfn(v);
+        s += weight_fn(v);
         if s > r {
             return Some(v);
         }

@@ -695,7 +695,9 @@ pub fn apply_directive(
         // import_list( "Name.txt" Symbol )
         "import_list" => {
             println!("args = {:?}", directive.arguments);
-            assert_eq!(directive.arguments.len(), 2); // TODO: This should become an error
+            if directive.arguments.len()!=2 {
+                return Err(DirectiveError::GeneralError);
+            }
             let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;
             let from = raw::Symbol(directive.arguments[1].as_symbol().ok_or_else(|| DirectiveError::GeneralError)?.0.clone());
             for v in ctx.get_word_list(&name.0).map_err(|_e| DirectiveError::GeneralError)? {
@@ -711,8 +713,9 @@ pub fn apply_directive(
         "import_language" => {
             // TODO we should support other modes rather than import everything into the
             //      root namespace.
-            assert_eq!(directive.arguments.len(), 1); //TODO: This should be an error
-            let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;;
+            if directive.arguments.len()!=1 {
+                return Err(DirectiveError::GeneralError);
+            }            let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;;
             let l: raw::Language = ctx.get_language(&name.0).map_err(|_e| DirectiveError::GeneralError)?;
             for e in l.entries {
                 language.entries.push(e.clone());

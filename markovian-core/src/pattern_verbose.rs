@@ -220,6 +220,16 @@ impl ProductionGroup {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum ExpansionError {
+    GeneralError
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ConversionError {
+    GeneralError
+}
+
 #[derive(Debug, Default)]
 pub struct Language {
     terminals_by_value: BTreeMap<String, SymbolId>,
@@ -278,7 +288,7 @@ impl Language {
             .add(Production::new(weight, keys))
     }
 
-    pub fn expand<R: SimpleRNG>(&self, tokens: &[SymbolId], rng: &mut R) -> String {
+    pub fn expand<R: SimpleRNG>(&self, tokens: &[SymbolId], rng: &mut R) -> Result<String, ExpansionError> {
         let mut expansion_stack: Vec<&[SymbolId]> = vec![tokens];
         let mut complete: String = "".to_string();
 
@@ -293,20 +303,14 @@ impl Language {
             if let Some(s) = self.terminals_by_id.get(&token) {
                 complete = format!("{}{}", complete, s);
             } else {
-                //TODO: unwrap is bad.
-                //TODO: Need to select by weight.
-                //TODO: Need to handle productions being empty.
-                let pg = self.productions_by_id.get(&token).unwrap();
-                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight).unwrap();
+                //TODO: Differentiate between these errors and give a better message
+                let pg = self.productions_by_id.get(&token).ok_or_else(|| ExpansionError::GeneralError)?;
+                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight).ok_or_else(|| ExpansionError::GeneralError)?;
                 expansion_stack.push(&p.keys);
             }
         }
-        complete
+        Ok(complete)
     }
-
-
-
-
 
     pub fn format_symbol(&self, sid: SymbolId) -> String {
         if let Some(v) = self.terminals_by_id.get(&sid) {
@@ -334,7 +338,7 @@ impl Language {
         result
     }
 
-    pub fn to_raw(&self) -> raw::Language {
+    pub fn to_raw(&self) -> Result<raw::Language, ConversionError> {
         let x: Vec<(String, &ProductionGroup)> = self
             .productions_by_id
             .iter()
@@ -352,7 +356,7 @@ impl Language {
         for e in z {
             let from = raw::Symbol(e.0);
             let weight = e.1;
-            let to: Option<Vec<_>> =
+            let to: Result<Vec<_>, ConversionError> =
                 e.2.into_iter()
                     .map(|vid| {
                         let s = self
@@ -361,18 +365,22 @@ impl Language {
                             .find(|(_k, id)| **id == vid)
                             .map(|(k, _id)| k);
                         if let Some(s) = s {
-                            return Some(raw::SymbolOrLiteral::symbol(s));
+                            return Ok(raw::SymbolOrLiteral::symbol(s));
                         }
-                        self.terminals_by_id
+                        let s = self.terminals_by_id
                             .get(&vid)
                             .cloned()
-                            .map(raw::SymbolOrLiteral::literal)
+                            .map(raw::SymbolOrLiteral::literal);
+                        if let Some(s) = s {
+                            return Ok(s)
+                        }
+                        Err(ConversionError::GeneralError)
                     })
                     .collect();
-            let to = to.unwrap();
+            let to = to?;
             entries.push(raw::Production { from, weight, to })
         }
-        raw::Language { entries }
+        Ok(raw::Language { entries })
     }
 }
 
@@ -1009,7 +1017,7 @@ mod tests {
 
         let mut language = Language::new();
         let s1 = language.add_or_get_literal("hello");
-        let r = language.expand(&[s1], &mut rng);
+        let r = language.expand(&[s1], &mut rng).unwrap();
         assert_eq!("hello", r);
     }
 
@@ -1021,11 +1029,11 @@ mod tests {
         let hello = language.add_or_get_literal("hello");
         let space = language.add_or_get_literal(" ");
         let world = language.add_or_get_literal("world");
-        let r = language.expand(&[hello, space, world], &mut rng);
+        let r = language.expand(&[hello, space, world], &mut rng).unwrap();
         assert_eq!("hello world", r);
         let hello_world = language.new_symbol();
         language.add_production(hello_world, 1, &[hello, space, world]);
-        let r = language.expand(&[hello_world], &mut rng);
+        let r = language.expand(&[hello_world], &mut rng).unwrap();
         assert_eq!("hello world", r);
     }
 
@@ -1037,7 +1045,7 @@ mod tests {
         let language = Language::from_raw(&language);
         let s1 = language.token_by_name("tofu").unwrap();
         for _i in 0..10 {
-            let v = language.expand(&[s1], &mut rng);
+            let v = language.expand(&[s1], &mut rng).unwrap();
             println!("{:?}", v);
         }
         assert_eq!(false, true);
@@ -1271,7 +1279,7 @@ mod tests {
         let language = load_language(language_raw, &mut ctx);
         let language = Language::from_raw(&language);
         let mut rng = thread_rng();
-        let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng);
+        let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng).unwrap();
         assert_eq!("hello world", s);
     }
 
@@ -1474,6 +1482,22 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    pub fn test_language_from_to_raw_ping_pong() {
+        let initial = raw::Language{
+            entries:vec![
+                raw::Production{
+                    from:raw::Symbol::new("A"),
+                    weight:1,
+                    to:vec![raw::SymbolOrLiteral::symbol("B"), raw::SymbolOrLiteral::literal("X")]
+                }
+            ]
+        };
+        let compiled = Language::from_raw(&initial);
+        let reverted = compiled.to_raw().unwrap();
+        assert_eq!(initial.entries, reverted.entries);
     }
 
     /*

@@ -53,9 +53,9 @@ mod raw {
             }
         }
 
-        pub fn map_literal<F,E>(self, f: F) -> Result<SymbolOrLiteral,E>
+        pub fn map_literal<F, E>(self, f: F) -> Result<SymbolOrLiteral, E>
         where
-            F: Fn(String) -> Result<String,E>,
+            F: Fn(String) -> Result<String, E>,
         {
             let r = match self {
                 SymbolOrLiteral::Symbol(_) => self,
@@ -64,9 +64,9 @@ mod raw {
             Ok(r)
         }
 
-        pub fn map_symbol<F,E>(self, f: F) -> Result<SymbolOrLiteral,E>
+        pub fn map_symbol<F, E>(self, f: F) -> Result<SymbolOrLiteral, E>
         where
-            F: Fn(String) -> Result<String,E>,
+            F: Fn(String) -> Result<String, E>,
         {
             let r = match self {
                 SymbolOrLiteral::Symbol(Symbol(v)) => SymbolOrLiteral::symbol(f(v)?),
@@ -84,28 +84,30 @@ mod raw {
     }
 
     impl Production {
-        pub fn map_literals<F,E>(self, f: F) -> Result<Production,E>
+        pub fn map_literals<F, E>(self, f: F) -> Result<Production, E>
         where
-            F: Fn(String) -> Result<String,E>,
+            F: Fn(String) -> Result<String, E>,
         {
             let mut result = self;
-            result.to = result.to
+            result.to = result
+                .to
                 .into_iter()
-                .map( |s| s.map_literal(&f) )
-                .collect::<Result<_,_>>()?;
+                .map(|s| s.map_literal(&f))
+                .collect::<Result<_, _>>()?;
             Ok(result)
         }
 
-        pub fn map_symbols<F,E>(self, f: F) -> Result<Production,E>
+        pub fn map_symbols<F, E>(self, f: F) -> Result<Production, E>
         where
-            F: Fn(String) -> Result<String,E>,
+            F: Fn(String) -> Result<String, E>,
         {
             let mut result = self;
             result.from = Symbol::new(f(result.from.0)?);
-            result.to = result.to
+            result.to = result
+                .to
                 .into_iter()
-                .map( |s| s.map_symbol(&f) )
-                .collect::<Result<_,_>>()?;
+                .map(|s| s.map_symbol(&f))
+                .collect::<Result<_, _>>()?;
             Ok(result)
         }
     }
@@ -120,31 +122,29 @@ mod raw {
             Language { entries: vec![] }
         }
 
-        pub fn map_literals<F,E>(self, f: F) -> Result<Language,E>
+        pub fn map_literals<F, E>(self, f: F) -> Result<Language, E>
         where
-            F: Fn(String) -> Result<String,E>,
+            F: Fn(String) -> Result<String, E>,
         {
             let mut result = self;
-            result.entries = result.entries
+            result.entries = result
+                .entries
                 .into_iter()
-                .map(
-                    |p| p.map_literals(&f)
-                )
-                .collect::<Result<_,_>>()?;
+                .map(|p| p.map_literals(&f))
+                .collect::<Result<_, _>>()?;
             Ok(result)
         }
 
-        pub fn map_symbols<F,E>(self, f: F) -> Result<Language,E>
+        pub fn map_symbols<F, E>(self, f: F) -> Result<Language, E>
         where
-            F: Fn(String) -> Result<String,E>,
+            F: Fn(String) -> Result<String, E>,
         {
             let mut result = self;
-            result.entries = result.entries
+            result.entries = result
+                .entries
                 .into_iter()
-                .map(
-                    |p| p.map_symbols(&f)
-                )
-                .collect::<Result<_,_>>()?;
+                .map(|p| p.map_symbols(&f))
+                .collect::<Result<_, _>>()?;
             Ok(result)
         }
     }
@@ -219,7 +219,7 @@ impl ProductionGroup {
     }
 }
 
-//TODO: These really do indicate behaviour that should be caught at the point at which a raw 
+//TODO: These really do indicate behaviour that should be caught at the point at which a raw
 // Language is converted into a compiled language. And so could become asserts.
 // In the compile stage both really corrspond to the case where a Symbol appears in the from part
 // of a production, but doesn't have any corresponding productions.SymbolId
@@ -293,7 +293,11 @@ impl Language {
             .add(Production::new(weight, keys))
     }
 
-    pub fn expand<R: SimpleRNG>(&self, tokens: &[SymbolId], rng: &mut R) -> Result<String, ExpansionError> {
+    pub fn expand<R: SimpleRNG>(
+        &self,
+        tokens: &[SymbolId],
+        rng: &mut R,
+    ) -> Result<String, ExpansionError> {
         let mut expansion_stack: Vec<&[SymbolId]> = vec![tokens];
         let mut complete: String = "".to_string();
 
@@ -309,8 +313,12 @@ impl Language {
                 complete = format!("{}{}", complete, s);
             } else {
                 //TODO: Differentiate between these errors and give a better message
-                let pg = self.productions_by_id.get(&token).ok_or_else(|| ExpansionError::InvalidSymbolId(token))?;
-                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight).ok_or_else(|| ExpansionError::MissingExpansion(token))?;
+                let pg = self
+                    .productions_by_id
+                    .get(&token)
+                    .ok_or_else(|| ExpansionError::InvalidSymbolId(token))?;
+                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight)
+                    .ok_or_else(|| ExpansionError::MissingExpansion(token))?;
                 expansion_stack.push(&p.keys);
             }
         }
@@ -329,35 +337,40 @@ impl Language {
 
     //TODO: There should be no other way to create a Language other than from a
     //      raw::Language!
-    pub fn from_raw(raw: &raw::Language) -> Result<Self,ConversionError> {
-
-        // Check that language is sane 
+    pub fn from_raw(raw: &raw::Language) -> Result<Self, ConversionError> {
+        // Check that language is sane
         // At the moment that just means having all symbols
         // correspond to a production with non-zero weight
         // TODO: Probably should have raw::Language::from_symbols()
-        //       and to_symbols() and derive what we need to actually 
+        //       and to_symbols() and derive what we need to actually
         //       use BTreeSet<raw::Symbol>.
         // TODO: Probably can hoist all of this check into raw::Language
         //       so that this becomes `raw.check_complete()?` or similar.
         {
-            let mut from_symbols:BTreeSet<String> = BTreeSet::new();
-            let mut to_symbols:BTreeSet<String> = BTreeSet::new();
+            let mut from_symbols: BTreeSet<String> = BTreeSet::new();
+            let mut to_symbols: BTreeSet<String> = BTreeSet::new();
 
             for p in &raw.entries {
-                if p.weight == 0 { continue }
+                if p.weight == 0 {
+                    continue;
+                }
                 from_symbols.insert(p.from.0.clone());
-                for s in p.to.iter().filter_map( |s| s.as_symbol() ) {
+                for s in p.to.iter().filter_map(|s| s.as_symbol()) {
                     to_symbols.insert(s.0.clone());
                 }
             }
             if !to_symbols.is_subset(&from_symbols) {
-                return Err(ConversionError::MissingExpansions(&to_symbols - &from_symbols));
+                return Err(ConversionError::MissingExpansions(
+                    &to_symbols - &from_symbols,
+                ));
             }
         }
 
         let mut result = Language::new();
         for p in &raw.entries {
-            if p.weight == 0 { continue }
+            if p.weight == 0 {
+                continue;
+            }
             let from = result.add_or_get_named_symbol(&p.from.0);
             let prod: Vec<SymbolId> =
                 p.to.iter()
@@ -400,12 +413,13 @@ impl Language {
                         if let Some(s) = s {
                             return Ok(raw::SymbolOrLiteral::symbol(s));
                         }
-                        let s = self.terminals_by_id
+                        let s = self
+                            .terminals_by_id
                             .get(&vid)
                             .cloned()
                             .map(raw::SymbolOrLiteral::literal);
                         if let Some(s) = s {
-                            return Ok(s)
+                            return Ok(s);
                         }
                         Err(ConversionError::GeneralError)
                     })
@@ -448,7 +462,7 @@ pub mod parse {
             if r.is_whitespace() {
                 rest = it.as_str()
             } else {
-                break
+                break;
             }
         }
         Ok(((), rest))
@@ -715,7 +729,7 @@ impl Context for EmptyContext {
 //TODO: Create more informative error types?
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveError {
-    GeneralError
+    GeneralError,
 }
 
 pub fn apply_directive(
@@ -728,12 +742,23 @@ pub fn apply_directive(
         // import_list( "Name.txt" Symbol )
         "import_list" => {
             println!("args = {:?}", directive.arguments);
-            if directive.arguments.len()!=2 {
+            if directive.arguments.len() != 2 {
                 return Err(DirectiveError::GeneralError);
             }
-            let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;
-            let from = raw::Symbol(directive.arguments[1].as_symbol().ok_or_else(|| DirectiveError::GeneralError)?.0.clone());
-            for v in ctx.get_word_list(&name.0).map_err(|_e| DirectiveError::GeneralError)? {
+            let name = directive.arguments[0]
+                .as_literal()
+                .ok_or_else(|| DirectiveError::GeneralError)?;
+            let from = raw::Symbol(
+                directive.arguments[1]
+                    .as_symbol()
+                    .ok_or_else(|| DirectiveError::GeneralError)?
+                    .0
+                    .clone(),
+            );
+            for v in ctx
+                .get_word_list(&name.0)
+                .map_err(|_e| DirectiveError::GeneralError)?
+            {
                 language.entries.push(raw::Production {
                     from: from.clone(),
                     weight: 1,
@@ -746,10 +771,15 @@ pub fn apply_directive(
         "import_language" => {
             // TODO we should support other modes rather than import everything into the
             //      root namespace.
-            if directive.arguments.len()!=1 {
+            if directive.arguments.len() != 1 {
                 return Err(DirectiveError::GeneralError);
-            }            let name = directive.arguments[0].as_literal().ok_or_else(|| DirectiveError::GeneralError)?;;
-            let l: raw::Language = ctx.get_language(&name.0).map_err(|_e| DirectiveError::GeneralError)?;
+            }
+            let name = directive.arguments[0]
+                .as_literal()
+                .ok_or_else(|| DirectiveError::GeneralError)?;;
+            let l: raw::Language = ctx
+                .get_language(&name.0)
+                .map_err(|_e| DirectiveError::GeneralError)?;
             for e in l.entries {
                 language.entries.push(e.clone());
             }
@@ -762,7 +792,7 @@ pub fn apply_directive(
     }
 }
 
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum LoadLanguageError {
     GeneralError,
     //TODO: Add more information to this type
@@ -770,7 +800,10 @@ pub enum LoadLanguageError {
     DirectiveError(DirectiveError),
 }
 
-pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Result<raw::Language, LoadLanguageError> {
+pub fn load_language(
+    language_raw: &str,
+    ctx: &mut dyn Context,
+) -> Result<raw::Language, LoadLanguageError> {
     let mut language = raw::Language::new();
     for line in language_raw.lines() {
         match parse::parse_language_line(line) {
@@ -784,7 +817,8 @@ pub fn load_language(language_raw: &str, ctx: &mut dyn Context) -> Result<raw::L
                 }
             }
             Ok(parse::Line::Directive(d)) => {
-                apply_directive(&mut language, &d, ctx).map_err(LoadLanguageError::DirectiveError)?;
+                apply_directive(&mut language, &d, ctx)
+                    .map_err(LoadLanguageError::DirectiveError)?;
             }
         }
     }
@@ -1046,7 +1080,9 @@ mod tests {
         let mut rng = thread_rng();
 
         let language = towns_language_mod();
-        let language = language.map_literals(|v|->Result<String,()> {Ok(format!("{}|", v))}).unwrap();
+        let language = language
+            .map_literals(|v| -> Result<String, ()> { Ok(format!("{}|", v)) })
+            .unwrap();
         let language = Language::from_raw(&language).unwrap();
         let s1 = language.token_by_name("town").unwrap();
         for _i in 0..10 {
@@ -1223,14 +1259,14 @@ mod tests {
 
     #[test]
     fn test_eat_spaces_works_on_multibyte_string() {
-        assert_eq!(parse::eat_spaces("⇄"), Ok(((),"⇄")));
-        assert_eq!(parse::eat_spaces(" ⇄"), Ok(((),"⇄")));
+        assert_eq!(parse::eat_spaces("⇄"), Ok(((), "⇄")));
+        assert_eq!(parse::eat_spaces(" ⇄"), Ok(((), "⇄")));
     }
 
     #[test]
     fn test_eat_spaces_works_on_symbol_then_space_then_symbol() {
-        assert_eq!(parse::eat_spaces("A B"), Ok(((),"A B")));
-        assert_eq!(parse::eat_spaces(" A B"), Ok(((),"A B")));
+        assert_eq!(parse::eat_spaces("A B"), Ok(((), "A B")));
+        assert_eq!(parse::eat_spaces(" A B"), Ok(((), "A B")));
     }
 
     #[test]
@@ -1332,7 +1368,9 @@ mod tests {
         let language = load_language(language_raw, &mut ctx).unwrap();
         let language = Language::from_raw(&language).unwrap();
         let mut rng = thread_rng();
-        let s = language.expand(&[language.token_by_name("hw").unwrap()], &mut rng).unwrap();
+        let s = language
+            .expand(&[language.token_by_name("hw").unwrap()], &mut rng)
+            .unwrap();
         assert_eq!("hello world", s);
     }
 
@@ -1539,19 +1577,22 @@ mod tests {
 
     #[test]
     pub fn test_language_from_to_raw_ping_pong() {
-        let initial = raw::Language{
-            entries:vec![
-                raw::Production{
-                    from:raw::Symbol::new("A"),
-                    weight:1,
-                    to:vec![raw::SymbolOrLiteral::symbol("B"), raw::SymbolOrLiteral::literal("X")]
+        let initial = raw::Language {
+            entries: vec![
+                raw::Production {
+                    from: raw::Symbol::new("A"),
+                    weight: 1,
+                    to: vec![
+                        raw::SymbolOrLiteral::symbol("B"),
+                        raw::SymbolOrLiteral::literal("X"),
+                    ],
                 },
-                raw::Production{
-                    from:raw::Symbol::new("B"),
-                    weight:1,
-                    to:vec![raw::SymbolOrLiteral::literal("Y")]
-                }, 
-            ]
+                raw::Production {
+                    from: raw::Symbol::new("B"),
+                    weight: 1,
+                    to: vec![raw::SymbolOrLiteral::literal("Y")],
+                },
+            ],
         };
         let compiled = Language::from_raw(&initial).unwrap();
         let reverted = compiled.to_raw().unwrap();

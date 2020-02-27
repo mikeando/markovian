@@ -36,11 +36,17 @@ pub fn eat_spaces(v: &str) -> Result<((), &str), ParseError> {
 
 pub fn eat_nonspaces(v: &str) -> Result<(&str, &str), ParseError> {
     let mut rest = v;
-    //TODO: This should really work on chars..
-    while !rest.is_empty() && (&rest[0..1] != " " && &rest[0..1] != "\t") {
-        rest = &rest[1..];
+    let mut it = v.char_indices();
+    let mut end = 0;
+    while let Some((i, r)) = it.next() {
+        if ! r.is_whitespace() {
+            rest = it.as_str();
+            end = i + r.len_utf8();
+        } else {
+            break;
+        }
     }
-    Ok((&v[0..(v.len() - rest.len())], rest))
+    Ok((&v[0..end], rest))
 }
 
 pub fn is_symbol_character(c: char) -> bool {
@@ -275,30 +281,6 @@ mod tests {
     use super::super::raw;
     use super::super::parse;
 
-    //TODO: This is duplicated in pattern_verbose.rs
-    fn prod_symbols(from: &str, to: &[&str]) -> raw::Production {
-        raw::Production {
-            from: raw::Symbol::new(from),
-            weight: 1,
-            to: to
-                .iter()
-                .map(|s| raw::SymbolOrLiteral::symbol(*s))
-                .collect(),
-        }
-    }
-
-    //TODO: This is duplicated in pattern_verbose.rs
-    fn prod_literals(from: &str, to: &[&str]) -> raw::Production {
-        raw::Production {
-            from: raw::Symbol::new(from),
-            weight: 1,
-            to: to
-                .iter()
-                .map(|s| raw::SymbolOrLiteral::literal(*s))
-                .collect(),
-        }
-    }
-
     fn prod(from:&str, weight:u32, to:Vec<raw::SymbolOrLiteral>) -> raw::Production {
         raw::Production {
             from: raw::Symbol::new(from),
@@ -391,6 +373,26 @@ mod tests {
     fn test_eat_spaces_works_on_symbol_then_space_then_symbol() {
         assert_eq!(parse::eat_spaces("A B"), Ok(((), "A B")));
         assert_eq!(parse::eat_spaces(" A B"), Ok(((), "A B")));
+    }
+
+    #[test]
+    fn test_eat_nonspaces_works_on_multibyte_string() {
+        assert_eq!(parse::eat_nonspaces("⇄ hello"), Ok(("⇄", " hello")));
+    }
+
+    #[test]
+    fn test_eat_nonspaces_works_on_empty_string() {
+        assert_eq!(parse::eat_nonspaces(""), Ok(("", "")));
+    }
+
+    #[test]
+    fn test_eat_nonspaces_works_on_whitespace_string() {
+        assert_eq!(parse::eat_nonspaces("  "), Ok(("", "  ")));
+    }
+
+    #[test]
+    fn test_eat_nonspaces_works_on_leading_whitespace_string() {
+        assert_eq!(parse::eat_nonspaces(" X "), Ok(("", " X ")));
     }
 
     #[test]

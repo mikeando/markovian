@@ -1,4 +1,4 @@
-use log::{debug, error, info, log_enabled, trace, warn};
+use log::{debug, info, log_enabled};
 use rand::Rng;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -7,9 +7,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use markovian_core::markov_model::MarkovModel;
-use markovian_core::sequence_map;
 use markovian_core::symbol::Symbol;
-use markovian_core::weighted_sampler::WeightedSampler;
 
 fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
     s.as_bytes().iter().cloned().map(Symbol::Char).collect()
@@ -222,8 +220,14 @@ fn test_productions() {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "markovian", about = "Markov based name generator.")]
-struct Opt {
+#[structopt(name = "markovian", about = "Markov and Grammar based generators.")]
+enum Mode {
+    Markov(MarkovOpt),
+    Grammar(GrammarOpt),
+}
+
+#[derive(Debug, StructOpt)]
+struct MarkovOpt {
     /// Input file
     #[structopt(short, long, parse(from_os_str))]
     name_file: Vec<PathBuf>,
@@ -255,6 +259,21 @@ struct Opt {
     /// number of names to print
     #[structopt(long)]
     reverse: bool,
+}
+
+#[derive(Debug, StructOpt)]
+struct GrammarOpt {
+    /// directory to load additional rules and word lists from.
+    #[structopt(long, default_value = ".")]
+    library_directory:PathBuf,
+
+    /// root list of rules to load.
+    #[structopt(long)]
+    rules_file:PathBuf,
+
+    /// root symbol for productions.
+    #[structopt(long)]
+    start_token:String,
 }
 
 fn setup_logging(verbose: i32) {
@@ -570,12 +589,14 @@ fn analyse_symbol_similarity(input_names: &[Vec<Symbol>]) {
     }
 }
 
-fn main() {
+fn markov(opt:MarkovOpt) {
+    //TODO: Move logging configuration into main options.
     use log::Level::Info;
     use std::cmp::min;
 
-    let opt = Opt::from_args();
     println!("{:?}", opt);
+
+    //TODO: Move productions tests into own mode
     if opt.run_productions_test {
         test_productions();
         return;
@@ -739,6 +760,58 @@ fn main() {
     */
 }
 
+// Prevent some uses from leaking into the main scope, 
+// since we cant put use inside an impl block
+mod grammar_loader_context {
+    use markovian_core::language::pattern_verbose::Context;
+    use markovian_core::language::pattern_verbose::ContextError;
+    use markovian_core::language::raw::Language;
+    use std::path::PathBuf;
+
+    pub struct GrammarLoaderContext {
+        path:PathBuf,
+    }
+    
+    impl GrammarLoaderContext {
+        pub fn new(path:PathBuf) -> Self {
+            GrammarLoaderContext{path}
+        }
+    }
+    
+    impl Context for GrammarLoaderContext {
+        fn get_word_list(&self, _name:&str) -> Result<Vec<String>, ContextError> {
+            unimplemented!()
+        }
+    
+        fn get_language(&self, _name:&str) -> Result<Language, ContextError> {
+            unimplemented!()
+        }
+    }
+}
+
+use grammar_loader_context::GrammarLoaderContext;
+
+
+
+fn grammar(opt:GrammarOpt) {
+    println!("{:?}", opt);
+    let mut rng = rand::thread_rng();
+    let mut ctx = GrammarLoaderContext::new(opt.library_directory);
+    let rules = std::fs::read_to_string(opt.rules_file).unwrap();
+    let language = markovian_core::language::pattern_verbose::load_language(&rules, &mut ctx).unwrap();
+    let language = markovian_core::language::pattern_verbose::Language::from_raw(&language).unwrap();
+    let s = language.expand(&[language.token_by_name(opt.start_token).unwrap()], &mut rng).unwrap();
+    println!("{}",s);
+}
+
+fn main() {
+    let mode = Mode::from_args();
+    match mode {
+        Mode::Markov(opt) => markov(opt),
+        Mode::Grammar(opt) => grammar(opt),
+    }
+}
+
 struct PersonId(u64);
 struct HouseId(u64);
 
@@ -789,14 +862,21 @@ mod tests {
         // it appears before a given character.
 
         let mut bigrams: BTreeMap<(Symbol, Symbol), usize> = BTreeMap::new();
-        bigrams.insert((a(), a()), 2);
-        bigrams.insert((a(), b()), 1);
-        bigrams.insert((c(), a()), 3);
-        bigrams.insert((c(), b()), 1);
+        bigrams.insert((a(), a()), 20);
+        bigrams.insert((a(), b()), 10);
+        bigrams.insert((c(), a()), 30);
+        bigrams.insert((c(), b()), 10);
 
         let v = normalize(vec![2., 0., 3., 2., 1., 0.]);
         let symbols = vec![a(), b(), c()];
-        assert_eq!(v, repr_for_symbol(&a(), &symbols, &bigrams));
+        fn cmp_eq(a:f32, b:f32) -> bool {
+            (a-b).abs() <= 1e-5 * 0.5 * (a.abs() + b.abs())
+        }
+        fn cmp_vec_eq(aa:&[f32],bb:&[f32]) -> bool {
+            aa.iter().zip(bb.iter()).all(|(a,b)| cmp_eq(*a,*b))
+        }
+        let r = repr_for_symbol(&a(), &symbols, &bigrams);
+        assert!(cmp_vec_eq(&v, &r), "{:?} != {:?}", v, r);
 
         let rr: Vec<_> = symbols
             .iter()
@@ -813,6 +893,5 @@ mod tests {
             }
             println!()
         }
-        assert!(false)
     }
 }

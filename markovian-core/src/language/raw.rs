@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Symbol(pub String);
 
@@ -9,26 +8,26 @@ impl Symbol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Literal(pub String);
+pub struct Literal<T>(pub T);
 
-impl Literal {
-    pub fn new<T: Into<String>>(v: T) -> Self {
+impl<T> Literal<T> {
+    pub fn new<V: Into<T>>(v: V) -> Self {
         Literal(v.into())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SymbolOrLiteral {
+pub enum SymbolOrLiteral<T> {
     Symbol(Symbol),
-    Literal(Literal),
+    Literal(Literal<T>),
 }
 
-impl SymbolOrLiteral {
-    pub fn literal<T: Into<String>>(v: T) -> Self {
+impl<T> SymbolOrLiteral<T> {
+    pub fn literal<V: Into<T>>(v: V) -> Self {
         SymbolOrLiteral::Literal(Literal::new(v))
     }
 
-    pub fn symbol<T: Into<String>>(v: T) -> Self {
+    pub fn symbol<V: Into<String>>(v: V) -> Self {
         SymbolOrLiteral::Symbol(Symbol::new(v))
     }
 
@@ -39,25 +38,25 @@ impl SymbolOrLiteral {
         }
     }
 
-    pub fn as_literal(&self) -> Option<&Literal> {
+    pub fn as_literal(&self) -> Option<&Literal<T>> {
         match &self {
             SymbolOrLiteral::Literal(s) => Some(s),
             _ => None,
         }
     }
 
-    pub fn map_literal<F, E>(self, f: F) -> Result<SymbolOrLiteral, E>
+    pub fn map_literal<F, E, U>(self, f: F) -> Result<SymbolOrLiteral<U>, E>
     where
-        F: Fn(String) -> Result<String, E>,
+        F: Fn(T) -> Result<U, E>,
     {
         let r = match self {
-            SymbolOrLiteral::Symbol(_) => self,
+            SymbolOrLiteral::Symbol(Symbol(v)) => SymbolOrLiteral::symbol(v),
             SymbolOrLiteral::Literal(Literal(v)) => SymbolOrLiteral::literal(f(v)?),
         };
         Ok(r)
     }
 
-    pub fn map_symbol<F, E>(self, f: F) -> Result<SymbolOrLiteral, E>
+    pub fn map_symbol<F, E>(self, f: F) -> Result<SymbolOrLiteral<T>, E>
     where
         F: Fn(String) -> Result<String, E>,
     {
@@ -70,27 +69,32 @@ impl SymbolOrLiteral {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Production {
+pub struct Production<T> {
     pub from: Symbol,
     pub weight: u32,
-    pub to: Vec<SymbolOrLiteral>,
+    pub to: Vec<SymbolOrLiteral<T>>,
 }
 
-impl Production {
-    pub fn map_literals<F, E>(self, f: F) -> Result<Production, E>
+impl<T> Production<T> {
+    pub fn map_literals<F, E, U>(self, f: F) -> Result<Production<U>, E>
     where
-        F: Fn(String) -> Result<String, E>,
+        F: Fn(T) -> Result<U, E>,
     {
-        let mut result = self;
-        result.to = result
+        let to: Vec<SymbolOrLiteral<U>> = self
             .to
             .into_iter()
             .map(|s| s.map_literal(&f))
             .collect::<Result<_, _>>()?;
+
+        let result: Production<U> = Production {
+            to,
+            from: self.from,
+            weight: self.weight,
+        };
         Ok(result)
     }
 
-    pub fn map_symbols<F, E>(self, f: F) -> Result<Production, E>
+    pub fn map_symbols<F, E>(self, f: F) -> Result<Production<T>, E>
     where
         F: Fn(String) -> Result<String, E>,
     {
@@ -106,29 +110,30 @@ impl Production {
 }
 
 #[derive(Debug, Clone)]
-pub struct Language {
-    pub entries: Vec<Production>,
+pub struct Language<T> {
+    pub entries: Vec<Production<T>>,
 }
 
-impl Language {
-    pub fn new() -> Language {
+impl<T> Language<T> {
+    pub fn new() -> Language<T> {
         Language { entries: vec![] }
     }
 
-    pub fn map_literals<F, E>(self, f: F) -> Result<Language, E>
+    pub fn map_literals<F, E, U>(self, f: F) -> Result<Language<U>, E>
     where
-        F: Fn(String) -> Result<String, E>,
+        F: Fn(T) -> Result<U, E>,
     {
-        let mut result = self;
-        result.entries = result
+        let entries: Vec<Production<U>> = self
             .entries
             .into_iter()
             .map(|p| p.map_literals(&f))
             .collect::<Result<_, _>>()?;
+
+        let result: Language<U> = Language { entries };
         Ok(result)
     }
 
-    pub fn map_symbols<F, E>(self, f: F) -> Result<Language, E>
+    pub fn map_symbols<F, E>(self, f: F) -> Result<Language<T>, E>
     where
         F: Fn(String) -> Result<String, E>,
     {

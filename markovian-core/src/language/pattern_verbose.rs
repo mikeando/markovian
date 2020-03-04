@@ -2,8 +2,8 @@ use rand::Rng;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use super::raw;
 use super::parse;
+use super::raw;
 
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Default)]
 pub struct SymbolId(u32);
@@ -193,7 +193,7 @@ impl Language {
         format!("{:?}", sid)
     }
 
-    pub fn from_raw(raw: &raw::Language) -> Result<Self, ConversionError> {
+    pub fn from_raw(raw: &raw::Language<String>) -> Result<Self, ConversionError> {
         // Check that language is sane
         // At the moment that just means having all symbols
         // correspond to a production with non-zero weight
@@ -240,7 +240,7 @@ impl Language {
         Ok(result)
     }
 
-    pub fn to_raw(&self) -> Result<raw::Language, ConversionError> {
+    pub fn to_raw(&self) -> Result<raw::Language<String>, ConversionError> {
         let x: Vec<(String, &ProductionGroup)> = self
             .productions_by_id
             .iter()
@@ -254,7 +254,7 @@ impl Language {
             .iter()
             .map(|(k, v)| (k.clone(), v.weight, v.keys.clone()))
             .collect();
-        let mut entries: Vec<raw::Production> = vec![];
+        let mut entries: Vec<raw::Production<String>> = vec![];
         for e in z {
             let from = raw::Symbol(e.0);
             let weight = e.1;
@@ -295,7 +295,7 @@ pub enum ContextError {
 
 pub trait Context {
     fn get_word_list(&self, name: &str) -> Result<Vec<String>, ContextError>;
-    fn get_language(&self, name: &str) -> Result<raw::Language, ContextError>;
+    fn get_language(&self, name: &str) -> Result<raw::Language<String>, ContextError>;
 }
 
 pub struct EmptyContext;
@@ -303,7 +303,7 @@ impl Context for EmptyContext {
     fn get_word_list(&self, _name: &str) -> Result<Vec<String>, ContextError> {
         Err(ContextError::InvalidOperation)
     }
-    fn get_language(&self, _name: &str) -> Result<raw::Language, ContextError> {
+    fn get_language(&self, _name: &str) -> Result<raw::Language<String>, ContextError> {
         Err(ContextError::InvalidOperation)
     }
 }
@@ -315,7 +315,7 @@ pub enum DirectiveError {
 }
 
 pub fn apply_directive(
-    language: &mut raw::Language,
+    language: &mut raw::Language<String>,
     directive: &parse::Directive,
     ctx: &mut dyn Context,
 ) -> Result<(), DirectiveError> {
@@ -359,7 +359,7 @@ pub fn apply_directive(
             let name = directive.arguments[0]
                 .as_literal()
                 .ok_or_else(|| DirectiveError::GeneralError)?;;
-            let l: raw::Language = ctx
+            let l: raw::Language<String> = ctx
                 .get_language(&name.0)
                 .map_err(|_e| DirectiveError::GeneralError)?;
             for e in l.entries {
@@ -385,7 +385,7 @@ pub enum LoadLanguageError {
 pub fn load_language(
     language_raw: &str,
     ctx: &mut dyn Context,
-) -> Result<raw::Language, LoadLanguageError> {
+) -> Result<raw::Language<String>, LoadLanguageError> {
     let mut language = raw::Language::new();
     for line in language_raw.lines() {
         match parse::parse_language_line(line) {
@@ -412,7 +412,7 @@ mod tests {
     use super::*;
     use rand::thread_rng;
 
-    fn dummy_language() -> raw::Language {
+    fn dummy_language() -> raw::Language<String> {
         let rules = r#"2 tofu => "tofu"
                1 tofu => tofu " " tofu
                3 tofu => "I like to eat " tofu"#;
@@ -421,7 +421,7 @@ mod tests {
         load_language(rules, &mut ctx).unwrap()
     }
 
-    fn towns_language_mod() -> raw::Language {
+    fn towns_language_mod() -> raw::Language<String> {
         let mut word_lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let ll = &[
             "borough", "city", "fort", "hamlet", "parish", "town", "township", "village",
@@ -538,7 +538,7 @@ mod tests {
         load_language(rules, &mut ctx).unwrap()
     }
 
-    fn towns_language() -> raw::Language {
+    fn towns_language() -> raw::Language<String> {
         let rules = r#"1 town => town_x
                1 town => preword " " town_x
                1 preword => "new"
@@ -674,7 +674,7 @@ mod tests {
         assert_eq!(false, true);
     }
 
-    fn prod_symbols(from: &str, to: &[&str]) -> raw::Production {
+    fn prod_symbols(from: &str, to: &[&str]) -> raw::Production<String> {
         raw::Production {
             from: raw::Symbol::new(from),
             weight: 1,
@@ -685,7 +685,7 @@ mod tests {
         }
     }
 
-    fn prod_literals(from: &str, to: &[&str]) -> raw::Production {
+    fn prod_literals(from: &str, to: &[&str]) -> raw::Production<String> {
         raw::Production {
             from: raw::Symbol::new(from),
             weight: 1,
@@ -776,9 +776,6 @@ mod tests {
         );
     }
 
- 
-
-
     #[test]
     fn load_language_e2e() {
         let language_raw = r#"1 hello => "hello"
@@ -826,12 +823,9 @@ mod tests {
         );
     }
 
-
-
-
     struct MockContext {
         word_lists: BTreeMap<String, Vec<String>>,
-        languages: BTreeMap<String, raw::Language>,
+        languages: BTreeMap<String, raw::Language<String>>,
     }
 
     impl Context for MockContext {
@@ -841,7 +835,7 @@ mod tests {
                 None => Err(ContextError::InvalidKey),
             }
         }
-        fn get_language(&self, name: &str) -> Result<raw::Language, ContextError> {
+        fn get_language(&self, name: &str) -> Result<raw::Language<String>, ContextError> {
             match self.languages.get(name) {
                 Some(v) => Ok(v.clone()),
                 None => Err(ContextError::InvalidKey),
@@ -889,7 +883,7 @@ mod tests {
     fn test_parse_language_with_import_language_directive() {
         use raw::{Language, Production, Symbol, SymbolOrLiteral};
 
-        let mut languages: BTreeMap<String, Language> = BTreeMap::new();
+        let mut languages: BTreeMap<String, Language<String>> = BTreeMap::new();
         let mut l = Language::new();
         l.entries.push(Production {
             from: Symbol::new("A"),

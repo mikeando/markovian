@@ -1,4 +1,3 @@
-
 use super::raw;
 use raw::Production;
 use raw::Symbol;
@@ -39,7 +38,7 @@ pub fn eat_nonspaces(v: &str) -> Result<(&str, &str), ParseError> {
     let mut it = v.char_indices();
     let mut end = 0;
     while let Some((i, r)) = it.next() {
-        if ! r.is_whitespace() {
+        if !r.is_whitespace() {
             rest = it.as_str();
             end = i + r.len_utf8();
         } else {
@@ -102,8 +101,7 @@ pub fn parse_weight(v: &str) -> Result<(u32, &str), ParseError> {
 
 pub fn parse_symbol(v: &str) -> Result<(Symbol, &str), ParseError> {
     let (_, rest) = eat_spaces(v)?;
-    let (x, rest): (&str, &str) =
-        eat_symbol_chars(rest).map_err(|_e| ParseError::MissingSymbol)?;
+    let (x, rest): (&str, &str) = eat_symbol_chars(rest).map_err(|_e| ParseError::MissingSymbol)?;
     let (_, rest) = eat_spaces(rest)?;
     if x.is_empty() {
         return Err(ParseError::MissingSymbol);
@@ -151,7 +149,7 @@ where
 
 //NOTE: I couldn't get this working cleanly with parse_alt
 //      so I've just inlined it
-pub fn parse_symbol_or_literal(v: &str) -> Result<(SymbolOrLiteral, &str), ParseError> {
+pub fn parse_symbol_or_literal(v: &str) -> Result<(SymbolOrLiteral<String>, &str), ParseError> {
     let (_, rest) = eat_spaces(v)?;
     match parse_string(rest) {
         Ok((w, rest)) => {
@@ -170,7 +168,7 @@ pub fn parse_symbol_or_literal(v: &str) -> Result<(SymbolOrLiteral, &str), Parse
 
 pub fn parse_symbol_or_literal_list(
     v: &str,
-) -> Result<(Vec<SymbolOrLiteral>, &str), ParseError> {
+) -> Result<(Vec<SymbolOrLiteral<String>>, &str), ParseError> {
     let (_, rest) = eat_spaces(v)?;
     let mut result = vec![];
     let mut rest = rest;
@@ -189,15 +187,16 @@ pub fn parse_symbol_or_literal_list(
     Ok((result, rest))
 }
 
-pub fn parse_production(v: &str) -> Result<(Vec<Production>, &str), ParseError> {
+pub fn parse_production(v: &str) -> Result<(Vec<Production<String>>, &str), ParseError> {
     let (weight, rest): (u32, &str) = parse_weight(v)?;
     let (from, rest): (Symbol, &str) = parse_symbol(rest)?;
     let (_, rest) = parse_tag("=>", rest)?;
 
-    let mut options: Vec<Vec<SymbolOrLiteral>> = vec![];
+    let mut options: Vec<Vec<SymbolOrLiteral<String>>> = vec![];
     let mut rest = rest;
     loop {
-        let (symbols, r): (Vec<SymbolOrLiteral>, &str) = parse_symbol_or_literal_list(rest)?;
+        let (symbols, r): (Vec<SymbolOrLiteral<String>>, &str) =
+            parse_symbol_or_literal_list(rest)?;
         rest = r;
         options.push(symbols);
         let (_, r) = eat_spaces(r)?;
@@ -231,7 +230,7 @@ pub fn parse_production(v: &str) -> Result<(Vec<Production>, &str), ParseError> 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Directive {
     pub name: String,
-    pub arguments: Vec<SymbolOrLiteral>,
+    pub arguments: Vec<SymbolOrLiteral<String>>,
 }
 
 pub fn parse_directive(v: &str) -> Result<(Directive, &str), ParseError> {
@@ -253,7 +252,7 @@ pub fn parse_directive(v: &str) -> Result<(Directive, &str), ParseError> {
 }
 
 pub enum Line {
-    MultiProduction(Vec<Production>),
+    MultiProduction(Vec<Production<String>>),
     Directive(Directive),
 }
 
@@ -278,10 +277,14 @@ pub fn parse_language_line(line: &str) -> Result<Line, ParseError> {
 #[cfg(test)]
 mod tests {
 
-    use super::super::raw;
     use super::super::parse;
+    use super::super::raw;
 
-    fn prod(from:&str, weight:u32, to:Vec<raw::SymbolOrLiteral>) -> raw::Production {
+    fn prod(
+        from: &str,
+        weight: u32,
+        to: Vec<raw::SymbolOrLiteral<String>>,
+    ) -> raw::Production<String> {
         raw::Production {
             from: raw::Symbol::new(from),
             weight,
@@ -289,11 +292,11 @@ mod tests {
         }
     }
 
-    fn s(k:&str) -> raw::SymbolOrLiteral {
+    fn s(k: &str) -> raw::SymbolOrLiteral<String> {
         raw::SymbolOrLiteral::symbol(k)
     }
 
-    fn l(k:&str) -> raw::SymbolOrLiteral {
+    fn l(k: &str) -> raw::SymbolOrLiteral<String> {
         raw::SymbolOrLiteral::literal(k)
     }
 
@@ -319,7 +322,6 @@ mod tests {
             ]
         );
     }
-
 
     #[test]
     fn tokenize_weight() {
@@ -498,7 +500,6 @@ mod tests {
         assert_eq!(e, (raw::Symbol("a_b".to_string()), "def"));
     }
 
-
     #[test]
     fn parse_symbol_simple() {
         assert_eq!(
@@ -550,6 +551,4 @@ mod tests {
             directive
         );
     }
-
-
 }

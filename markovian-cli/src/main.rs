@@ -265,15 +265,15 @@ struct MarkovOpt {
 struct GrammarOpt {
     /// directory to load additional rules and word lists from.
     #[structopt(long, default_value = ".")]
-    library_directory:PathBuf,
+    library_directory: PathBuf,
 
     /// root list of rules to load.
     #[structopt(long)]
-    rules_file:PathBuf,
+    rules_file: PathBuf,
 
     /// root symbol for productions.
     #[structopt(long)]
-    start_token:String,
+    start_token: String,
 }
 
 fn setup_logging(verbose: i32) {
@@ -589,7 +589,7 @@ fn analyse_symbol_similarity(input_names: &[Vec<Symbol>]) {
     }
 }
 
-fn markov(opt:MarkovOpt) {
+fn markov(opt: MarkovOpt) {
     //TODO: Move logging configuration into main options.
     use log::Level::Info;
     use std::cmp::min;
@@ -760,7 +760,7 @@ fn markov(opt:MarkovOpt) {
     */
 }
 
-// Prevent some uses from leaking into the main scope, 
+// Prevent some uses from leaking into the main scope,
 // since we cant put use inside an impl block
 mod grammar_loader_context {
     use markovian_core::language::pattern_verbose::Context;
@@ -769,21 +769,21 @@ mod grammar_loader_context {
     use std::path::PathBuf;
 
     pub struct GrammarLoaderContext {
-        path:PathBuf,
+        path: PathBuf,
     }
-    
+
     impl GrammarLoaderContext {
-        pub fn new(path:PathBuf) -> Self {
-            GrammarLoaderContext{path}
+        pub fn new(path: PathBuf) -> Self {
+            GrammarLoaderContext { path }
         }
     }
-    
+
     impl Context for GrammarLoaderContext {
-        fn get_word_list(&self, _name:&str) -> Result<Vec<String>, ContextError> {
+        fn get_word_list(&self, _name: &str) -> Result<Vec<String>, ContextError> {
             unimplemented!()
         }
-    
-        fn get_language(&self, _name:&str) -> Result<Language, ContextError> {
+
+        fn get_language(&self, _name: &str) -> Result<Language<String>, ContextError> {
             unimplemented!()
         }
     }
@@ -791,17 +791,22 @@ mod grammar_loader_context {
 
 use grammar_loader_context::GrammarLoaderContext;
 
-
-
-fn grammar(opt:GrammarOpt) {
+fn grammar(opt: GrammarOpt) {
     println!("{:?}", opt);
     let mut rng = rand::thread_rng();
     let mut ctx = GrammarLoaderContext::new(opt.library_directory);
     let rules = std::fs::read_to_string(opt.rules_file).unwrap();
-    let language = markovian_core::language::pattern_verbose::load_language(&rules, &mut ctx).unwrap();
-    let language = markovian_core::language::pattern_verbose::Language::from_raw(&language).unwrap();
-    let s = language.expand(&[language.token_by_name(opt.start_token).unwrap()], &mut rng).unwrap();
-    println!("{}",s);
+    let language =
+        markovian_core::language::pattern_verbose::load_language(&rules, &mut ctx).unwrap();
+    let language =
+        markovian_core::language::pattern_verbose::Language::from_raw(&language).unwrap();
+    let s = language
+        .expand(
+            &[language.token_by_name(opt.start_token).unwrap()],
+            &mut rng,
+        )
+        .unwrap();
+    println!("{}", s);
 }
 
 fn main() {
@@ -869,11 +874,11 @@ mod tests {
 
         let v = normalize(vec![2., 0., 3., 2., 1., 0.]);
         let symbols = vec![a(), b(), c()];
-        fn cmp_eq(a:f32, b:f32) -> bool {
-            (a-b).abs() <= 1e-5 * 0.5 * (a.abs() + b.abs())
+        fn cmp_eq(a: f32, b: f32) -> bool {
+            (a - b).abs() <= 1e-5 * 0.5 * (a.abs() + b.abs())
         }
-        fn cmp_vec_eq(aa:&[f32],bb:&[f32]) -> bool {
-            aa.iter().zip(bb.iter()).all(|(a,b)| cmp_eq(*a,*b))
+        fn cmp_vec_eq(aa: &[f32], bb: &[f32]) -> bool {
+            aa.iter().zip(bb.iter()).all(|(a, b)| cmp_eq(*a, *b))
         }
         let r = repr_for_symbol(&a(), &symbols, &bigrams);
         assert!(cmp_vec_eq(&v, &r), "{:?} != {:?}", v, r);

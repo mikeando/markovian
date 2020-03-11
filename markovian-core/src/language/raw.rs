@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Symbol(pub String);
 
 impl Symbol {
@@ -7,7 +7,7 @@ impl Symbol {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Literal<T>(pub T);
 
 impl<T> Literal<T> {
@@ -16,7 +16,7 @@ impl<T> Literal<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SymbolOrLiteral<T> {
     Symbol(Symbol),
     Literal(Literal<T>),
@@ -109,7 +109,7 @@ impl<T> Production<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Language<T> {
     pub entries: Vec<Production<T>>,
 }

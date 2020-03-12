@@ -1,4 +1,5 @@
 use super::raw;
+use raw::nf32;
 use raw::Production;
 use raw::Symbol;
 use raw::SymbolOrLiteral;
@@ -91,6 +92,7 @@ pub fn take_while_not_char(c: char, v: &str) -> Result<(&str, &str), ParseError>
     Err(ParseError::GeneralError)
 }
 
+//TODO: Allow this to work on +'ve floats?
 pub fn parse_weight(v: &str) -> Result<(u32, &str), ParseError> {
     let (_, rest) = eat_spaces(v)?;
     let (x, rest): (&str, &str) = eat_nonspaces(rest)?;
@@ -218,7 +220,7 @@ pub fn parse_production(v: &str) -> Result<(Vec<Production<String>>, &str), Pars
         options
             .into_iter()
             .map(|v| Production {
-                weight,
+                weight: nf32(weight as f32),
                 from: from.clone(),
                 to: v,
             })
@@ -279,6 +281,7 @@ mod tests {
 
     use super::super::parse;
     use super::super::raw;
+    use raw::nf32;
 
     fn prod(
         from: &str,
@@ -287,7 +290,7 @@ mod tests {
     ) -> raw::Production<String> {
         raw::Production {
             from: raw::Symbol::new(from),
-            weight,
+            weight: nf32(weight as f32),
             to,
         }
     }

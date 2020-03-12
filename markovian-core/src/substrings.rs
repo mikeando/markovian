@@ -4,31 +4,31 @@ use std::collections::BTreeSet;
 use crate::language;
 
 mod language_manipulation {
-    use crate::language::raw::*;
     use super::*;
+    use crate::language::raw::*;
 
     #[derive(Debug)]
     pub struct ExtractSequence<T> {
-        sequence:Vec<SymbolOrLiteral<T>>
+        sequence: Vec<SymbolOrLiteral<T>>,
     }
 
     #[derive(Debug)]
     pub struct FactorPrefix<T> {
-        symbol:Symbol,
-        prefix:Vec<SymbolOrLiteral<T>>
+        symbol: Symbol,
+        prefix: Vec<SymbolOrLiteral<T>>,
     }
 
     #[derive(Debug)]
     pub struct FactorSuffix<T> {
-        symbol:Symbol,
-        suffix:Vec<SymbolOrLiteral<T>>
+        symbol: Symbol,
+        suffix: Vec<SymbolOrLiteral<T>>,
     }
 
     #[derive(Debug)]
     pub enum LanguageManipulation<T> {
-        ExtractSequence( ExtractSequence<T> ),
-        FactorPrefix( FactorPrefix<T> ),
-        FactorSuffix( FactorSuffix<T> ),
+        ExtractSequence(ExtractSequence<T>),
+        FactorPrefix(FactorPrefix<T>),
+        FactorSuffix(FactorSuffix<T>),
     }
 
     #[derive(Debug)]
@@ -41,73 +41,75 @@ mod language_manipulation {
         fn get_proposal(&self, l: &Language<T>) -> Option<Proposal<T>>;
     }
 
-    impl <T> LanguageManipulation<T> 
-    where 
-        T: Clone + PartialEq
+    impl<T> LanguageManipulation<T>
+    where
+        T: Clone + PartialEq,
     {
         pub fn apply(&self, l: &Language<T>) -> Language<T> {
             match &self {
-                LanguageManipulation::ExtractSequence( action ) => { action.apply(l) }
-                LanguageManipulation::FactorPrefix( action ) => { action.apply(l) }
-                LanguageManipulation::FactorSuffix( action ) => { action.apply(l) }
+                LanguageManipulation::ExtractSequence(action) => action.apply(l),
+                LanguageManipulation::FactorPrefix(action) => action.apply(l),
+                LanguageManipulation::FactorSuffix(action) => action.apply(l),
             }
         }
     }
 
-    impl <T> ExtractSequence<T> 
-    where 
-        T: Clone + PartialEq
+    impl<T> ExtractSequence<T>
+    where
+        T: Clone + PartialEq,
     {
         pub fn apply(&self, l: &Language<T>) -> Language<T> {
             let s = new_symbol(l);
-        
+
             let mut entries: Vec<Production<T>> = vec![];
             //First add the new rule
             entries.push(Production {
                 from: s.clone(),
                 to: self.sequence.clone(),
-                weight: 1,
+                weight: nf32(1.0),
             });
-        
+
             // Now we need to find and replace occurrences of this in
             // all the productions
             for p in &l.entries {
                 entries.push(Production {
                     from: p.from.clone(),
                     weight: p.weight,
-                    to: replace_subsequence(&p.to, &self.sequence, SymbolOrLiteral::Symbol(s.clone())),
+                    to: replace_subsequence(
+                        &p.to,
+                        &self.sequence,
+                        SymbolOrLiteral::Symbol(s.clone()),
+                    ),
                 })
             }
-        
+
             Language { entries }
         }
     }
 
-    impl <T> FactorPrefix<T> 
-        where 
-            T: Clone + PartialEq
+    impl<T> FactorPrefix<T>
+    where
+        T: Clone + PartialEq,
     {
         pub fn apply(&self, l: &Language<T>) -> Language<T> {
             let s = new_symbol(l);
             let mut unchanged = vec![];
             let mut with_prefix = vec![];
-            let mut weight: u32 = 0;
+            let mut weight: nf32 = nf32(0.0);
             for e in &l.entries {
                 if e.from != self.symbol {
                     unchanged.push(e.clone());
                     continue;
                 }
-                if ! e.to.starts_with(&self.prefix) {
+                if !e.to.starts_with(&self.prefix) {
                     unchanged.push(e.clone());
                     continue;
                 }
-                with_prefix.push(
-                    Production {
-                        from: s.clone(),
-                        weight: e.weight,
-                        to: e.to[self.prefix.len()..].to_vec()
-                    }
-                );
+                with_prefix.push(Production {
+                    from: s.clone(),
+                    weight: e.weight,
+                    to: e.to[self.prefix.len()..].to_vec(),
+                });
                 weight += e.weight;
             }
             let p = Production {
@@ -118,56 +120,52 @@ mod language_manipulation {
             let mut entries = unchanged;
             entries.push(p);
             entries.append(&mut with_prefix);
-            Language {
-                entries
-            }
+            Language { entries }
         }
     }
 
-    impl <T> FactorSuffix<T> 
-        where T: Clone + PartialEq
+    impl<T> FactorSuffix<T>
+    where
+        T: Clone + PartialEq,
     {
         pub fn apply(&self, l: &Language<T>) -> Language<T> {
             let s = new_symbol(l);
             let mut unchanged = vec![];
             let mut with_prefix = vec![];
-            let mut weight: u32 = 0;
+            let mut weight: nf32 = nf32(0.0);
             for e in &l.entries {
                 if e.from != self.symbol {
                     unchanged.push(e.clone());
                     continue;
                 }
-                if ! e.to.ends_with(&self.suffix) {
+                if !e.to.ends_with(&self.suffix) {
                     unchanged.push(e.clone());
                     continue;
                 }
-                with_prefix.push(
-                    Production {
-                        from: s.clone(),
-                        weight: e.weight,
-                        to: e.to[..(e.to.len() - self.suffix.len())].to_vec()
-                    }
-                );
+                with_prefix.push(Production {
+                    from: s.clone(),
+                    weight: e.weight,
+                    to: e.to[..(e.to.len() - self.suffix.len())].to_vec(),
+                });
                 weight += e.weight;
             }
             let p = Production {
                 from: self.symbol.clone(),
                 weight,
-                to: [vec![SymbolOrLiteral::Symbol(s)], self.suffix.clone()].concat()
+                to: [vec![SymbolOrLiteral::Symbol(s)], self.suffix.clone()].concat(),
             };
             let mut entries = unchanged;
             entries.push(p);
             entries.append(&mut with_prefix);
-            Language {
-                entries
-            }
+            Language { entries }
         }
     }
 
     pub struct ExtractSequenceProposer;
 
-    impl <T> Proposer<T> for ExtractSequenceProposer 
-        where T: Ord + Clone
+    impl<T> Proposer<T> for ExtractSequenceProposer
+    where
+        T: Ord + Clone,
     {
         fn get_proposal(&self, l: &Language<T>) -> Option<Proposal<T>> {
             let mut m: BTreeMap<&[SymbolOrLiteral<T>], usize> = BTreeMap::new();
@@ -175,37 +173,33 @@ mod language_manipulation {
                 let mm: BTreeMap<&[SymbolOrLiteral<T>], usize> = substring_count(&p.to);
                 merge(&mut m, mm)
             }
-        
+
             // Now find the best subsequence
             let m = substring_value(m);
             //Find the one with the highest value.
             m.into_iter()
                 .max_by_key(|e| e.1)
                 .filter(|v| v.1 > 0)
-                .map(|(a,b)| 
-                    Proposal {
-                        action: LanguageManipulation::ExtractSequence(
-                            ExtractSequence {
-                                sequence:a.to_vec()
-                            }
-                        ),
-                        expected_improvement: b as i64
-                    }
-                )
+                .map(|(a, b)| Proposal {
+                    action: LanguageManipulation::ExtractSequence(ExtractSequence {
+                        sequence: a.to_vec(),
+                    }),
+                    expected_improvement: b as i64,
+                })
         }
-
     }
 
     pub struct FactorPrefixProposer;
 
     impl<T> Proposer<T> for FactorPrefixProposer
-        where T: Ord + Clone
+    where
+        T: Ord + Clone,
     {
         fn get_proposal(&self, l: &Language<T>) -> Option<Proposal<T>> {
-            let mut m:BTreeMap<(&Symbol,&[SymbolOrLiteral<T>]), usize> = BTreeMap::new();
+            let mut m: BTreeMap<(&Symbol, &[SymbolOrLiteral<T>]), usize> = BTreeMap::new();
             for e in &l.entries {
                 for i in 0..e.to.len() {
-                    *m.entry((&e.from, &e.to[..i+1]) ).or_insert(0) += 1;
+                    *m.entry((&e.from, &e.to[..i + 1])).or_insert(0) += 1;
                 }
             }
             // Replacing rules i=1..N
@@ -217,34 +211,35 @@ mod language_manipulation {
             // total cost = len(P) + 1 + sum( len(S_i) )
             //
             // so total saving is (N-1) * len(P) - 1
-            fn score<T>(suffix:&[SymbolOrLiteral<T>], count:usize) -> i64 {
+            fn score<T>(suffix: &[SymbolOrLiteral<T>], count: usize) -> i64 {
                 (suffix.len() as i64) * (count as i64 - 1) - 1
             }
 
             m.into_iter()
-                .map(|(k,v)| (k, score(k.1, v)) )
-                .filter( |(k,v)| *v>0 )
+                .map(|(k, v)| (k, score(k.1, v)))
+                .filter(|(k, v)| *v > 0)
                 .max_by_key(|e| e.1)
-                .map( |((symbol, prefix), s)|
-                    Proposal {
-                        action: LanguageManipulation::FactorPrefix(
-                            FactorPrefix { symbol: symbol.clone(), prefix: prefix.to_vec() }, ),
-                        expected_improvement: s,
-                    }
-                )
+                .map(|((symbol, prefix), s)| Proposal {
+                    action: LanguageManipulation::FactorPrefix(FactorPrefix {
+                        symbol: symbol.clone(),
+                        prefix: prefix.to_vec(),
+                    }),
+                    expected_improvement: s,
+                })
         }
     }
 
     pub struct FactorSuffixProposer;
 
     impl<T> Proposer<T> for FactorSuffixProposer
-        where T: Ord + Clone
+    where
+        T: Ord + Clone,
     {
         fn get_proposal(&self, l: &Language<T>) -> Option<Proposal<T>> {
-            let mut m:BTreeMap<(&Symbol,&[SymbolOrLiteral<T>]), usize> = BTreeMap::new();
+            let mut m: BTreeMap<(&Symbol, &[SymbolOrLiteral<T>]), usize> = BTreeMap::new();
             for e in &l.entries {
                 for i in 0..e.to.len() {
-                    *m.entry((&e.from, &e.to[i..]) ).or_insert(0) += 1;
+                    *m.entry((&e.from, &e.to[i..])).or_insert(0) += 1;
                 }
             }
             // Replacing rules i=1..N
@@ -256,28 +251,24 @@ mod language_manipulation {
             // total cost = len(P) + 1 + sum( len(S_i) )
             //
             // so total saving is (N-1) * len(P) - 1
-            fn score<T>(suffix:&[SymbolOrLiteral<T>], count:usize) -> i64 {
+            fn score<T>(suffix: &[SymbolOrLiteral<T>], count: usize) -> i64 {
                 (suffix.len() as i64) * (count as i64 - 1) - 1
             }
 
             m.into_iter()
-                .map(|(k,v)| (k, score(k.1, v)) )
-                .filter( |(k,v)| *v>0 )
+                .map(|(k, v)| (k, score(k.1, v)))
+                .filter(|(k, v)| *v > 0)
                 .max_by_key(|e| e.1)
-                .map( |((symbol, suffix), s)|
-                    Proposal {
-                        action: LanguageManipulation::FactorSuffix(
-                            FactorSuffix { symbol: symbol.clone(), suffix: suffix.to_vec() }, ),
-                        expected_improvement: s,
-                    }
-                )
+                .map(|((symbol, suffix), s)| Proposal {
+                    action: LanguageManipulation::FactorSuffix(FactorSuffix {
+                        symbol: symbol.clone(),
+                        suffix: suffix.to_vec(),
+                    }),
+                    expected_improvement: s,
+                })
         }
     }
-
 }
-
-
-
 
 // The aim of this module it to provide tools to
 // find the most common sub sequences of a set of sequences.
@@ -449,7 +440,7 @@ where
 }
 
 pub fn propose_extract_sequence<T>(
-    l: &language::raw::Language<T>
+    l: &language::raw::Language<T>,
 ) -> Option<(Vec<language::raw::SymbolOrLiteral<T>>, usize)>
 where
     T: Ord + Clone + std::fmt::Debug,
@@ -467,7 +458,7 @@ where
     m.into_iter()
         .max_by_key(|e| e.1)
         .filter(|v| v.1 > 0)
-        .map(|(a,b)| (a.to_vec(), b) )
+        .map(|(a, b)| (a.to_vec(), b))
 }
 
 pub fn remove_best_subseq_from_language<T>(
@@ -489,19 +480,24 @@ where
     let p3 = proposer.get_proposal(l);
     println!("Suggested sequence removal {:?}", p3);
 
-    [p1,p2,p3].into_iter()
-            .filter_map(|f| f.as_ref())
-            .max_by_key(|p| p.expected_improvement)
-            .map( |p| { println!("Applying {:?}", p); p.action.apply(l) } )
+    [p1, p2, p3]
+        .iter()
+        .filter_map(|f| f.as_ref())
+        .max_by_key(|p| p.expected_improvement)
+        .map(|p| {
+            println!("Applying {:?}", p);
+            p.action.apply(l)
+        })
 }
 
 pub fn extract_sequence<T>(
     l: &language::raw::Language<T>,
     seq: &[language::raw::SymbolOrLiteral<T>],
 ) -> language::raw::Language<T>
-where 
+where
     T: Ord + Clone + std::fmt::Debug,
 {
+    use language::raw::nf32;
     use language::raw::Language;
     use language::raw::Production;
     use language::raw::SymbolOrLiteral;
@@ -513,7 +509,7 @@ where
     entries.push(Production {
         from: s.clone(),
         to: seq.to_vec(),
-        weight: 1,
+        weight: nf32(1.0),
     });
 
     // Now we need to find and replace occurrences of this in
@@ -532,6 +528,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use language::raw::nf32;
 
     #[test]
     pub fn simple_substring_count() {
@@ -616,7 +613,7 @@ mod tests {
     ) -> language::raw::Production<T> {
         language::raw::Production {
             from: language::raw::Symbol::new(from),
-            weight,
+            weight: nf32(weight as f32),
             to,
         }
     }
@@ -803,31 +800,33 @@ mod tests {
         }
     }
 
-    pub fn language_size<T>(l:&language::raw::Language<T>) -> usize {
+    pub fn language_size<T>(l: &language::raw::Language<T>) -> usize {
         l.entries.iter().map(|e| e.to.len()).sum()
     }
 
     #[test]
     pub fn test_derive_names() {
         println!("CARGO_MANIFEST_DIR={}", env!("CARGO_MANIFEST_DIR"));
-        let names = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), "../resources/all_names_lc.text");
+        let names = format!(
+            "{}/{}",
+            env!("CARGO_MANIFEST_DIR"),
+            "../resources/all_names_lc.text"
+        );
         println!("names={}", names);
         let names = std::fs::read_to_string(names).unwrap();
         for name in names.lines() {
             println!("{}", name);
         }
         let s = language::raw::Symbol::new("N");
-        let entries:Vec<language::raw::Production<String>> = 
-            names.lines().map( |name| 
-                language::raw::Production {
-                    from:s.clone(),
-                    weight:1,
-                    to:vec!{language::raw::SymbolOrLiteral::literal(name),
-                }
-        }).collect();
-        let l = language::raw::Language {
-            entries
-        };
+        let entries: Vec<language::raw::Production<String>> = names
+            .lines()
+            .map(|name| language::raw::Production {
+                from: s.clone(),
+                weight: nf32(1.0),
+                to: vec![language::raw::SymbolOrLiteral::literal(name)],
+            })
+            .collect();
+        let l = language::raw::Language { entries };
         let mut ll = shatter_language(l);
         for _i in 0..500 {
             println!("==== language size = {} ====", language_size(&ll));
@@ -837,7 +836,7 @@ mod tests {
 
         let l = unshatter_language(ll);
         for e in l.entries {
-            println!("{:?}",e);
+            println!("{:?}", e);
         }
     }
 }

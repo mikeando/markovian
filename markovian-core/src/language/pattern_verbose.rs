@@ -4,18 +4,19 @@ use std::collections::BTreeSet;
 
 use super::parse;
 use super::raw;
+use raw::nf32;
 
 #[derive(Debug, Ord, Eq, PartialEq, PartialOrd, Copy, Clone, Default)]
 pub struct SymbolId(u32);
 
 #[derive(Debug, Clone)]
 pub struct Production {
-    weight: u32,
+    weight: nf32,
     keys: Vec<SymbolId>,
 }
 
 impl Production {
-    pub fn new(weight: u32, keys: &[SymbolId]) -> Production {
+    pub fn new(weight: nf32, keys: &[SymbolId]) -> Production {
         Production {
             weight,
             keys: keys.to_vec(),
@@ -24,14 +25,14 @@ impl Production {
 }
 
 pub trait SimpleRNG {
-    fn gen_range(&mut self, low: u32, high: u32) -> u32;
+    fn gen_range(&mut self, low: f32, high: f32) -> f32;
 }
 
 impl<T> SimpleRNG for T
 where
     T: Rng,
 {
-    fn gen_range(&mut self, low: u32, high: u32) -> u32 {
+    fn gen_range(&mut self, low: f32, high: f32) -> f32 {
         Rng::gen_range(self, low, high)
     }
 }
@@ -43,17 +44,17 @@ pub fn choose_by_weight<'a, R: SimpleRNG, T, F>(
 ) -> Option<&'a T>
 where
     R: SimpleRNG,
-    F: Fn(&T) -> u32,
+    F: Fn(&T) -> f32,
 {
-    let sum_w: u32 = values.iter().map(weight_fn).sum();
-    if sum_w == 0 {
+    let sum_w: f32 = values.iter().map(weight_fn).sum();
+    if sum_w <= 0.0 {
         return None;
     }
-    let r = rng.gen_range(0, sum_w);
-    let mut s: u32 = 0;
+    let r = rng.gen_range(0.0, sum_w);
+    let mut s: f32 = 0.0;
     for v in values {
         s += weight_fn(v);
-        if s > r {
+        if s >= r {
             return Some(v);
         }
     }
@@ -144,7 +145,7 @@ impl Language {
         self.symbols_by_name.get(&v.into()).cloned()
     }
 
-    pub fn add_production(&mut self, symbol_id: SymbolId, weight: u32, keys: &[SymbolId]) {
+    pub fn add_production(&mut self, symbol_id: SymbolId, weight: nf32, keys: &[SymbolId]) {
         self.productions_by_id
             .entry(symbol_id)
             .or_insert_with(ProductionGroup::new)
@@ -175,7 +176,7 @@ impl Language {
                     .productions_by_id
                     .get(&token)
                     .ok_or_else(|| ExpansionError::InvalidSymbolId(token))?;
-                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight)
+                let p = choose_by_weight(rng, &pg.productions, &|x: &Production| x.weight.0)
                     .ok_or_else(|| ExpansionError::MissingExpansion(token))?;
                 expansion_stack.push(&p.keys);
             }
@@ -207,7 +208,7 @@ impl Language {
             let mut to_symbols: BTreeSet<String> = BTreeSet::new();
 
             for p in &raw.entries {
-                if p.weight == 0 {
+                if p.weight.0 == 0.0 {
                     continue;
                 }
                 from_symbols.insert(p.from.0.clone());
@@ -224,7 +225,7 @@ impl Language {
 
         let mut result = Language::new();
         for p in &raw.entries {
-            if p.weight == 0 {
+            if p.weight.0 == 0.0 {
                 continue;
             }
             let from = result.add_or_get_named_symbol(&p.from.0);
@@ -250,7 +251,7 @@ impl Language {
             .iter()
             .flat_map(|(k, g)| g.productions.iter().map(move |v| (k.clone(), v.clone())))
             .collect();
-        let z: Vec<(String, u32, Vec<SymbolId>)> = y
+        let z: Vec<(String, nf32, Vec<SymbolId>)> = y
             .iter()
             .map(|(k, v)| (k.clone(), v.weight, v.keys.clone()))
             .collect();
@@ -343,7 +344,7 @@ pub fn apply_directive(
             {
                 language.entries.push(raw::Production {
                     from: from.clone(),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![raw::SymbolOrLiteral::literal(v)],
                 });
             }
@@ -677,7 +678,7 @@ mod tests {
     fn prod_symbols(from: &str, to: &[&str]) -> raw::Production<String> {
         raw::Production {
             from: raw::Symbol::new(from),
-            weight: 1,
+            weight: nf32(1.0),
             to: to
                 .iter()
                 .map(|s| raw::SymbolOrLiteral::symbol(*s))
@@ -688,7 +689,7 @@ mod tests {
     fn prod_literals(from: &str, to: &[&str]) -> raw::Production<String> {
         raw::Production {
             from: raw::Symbol::new(from),
-            weight: 1,
+            weight: nf32(1.0),
             to: to
                 .iter()
                 .map(|s| raw::SymbolOrLiteral::literal(*s))
@@ -751,13 +752,13 @@ mod tests {
 
     #[test]
     fn test_choose_by_weight() {
-        let vs: Vec<(u32, &str)> = vec![(1, "a"), (2, "b"), (3, "c")];
+        let vs: Vec<(f32, &str)> = vec![(1.0, "a"), (2.0, "b"), (3.0, "c")];
         let mut rng = thread_rng();
         let mut counts: BTreeMap<&str, u32> = vec![("a", 0u32), ("b", 0u32), ("c", 0u32)]
             .into_iter()
             .collect();
         for _i in 0..600 {
-            let v = choose_by_weight(&mut rng, &vs, &|x: &(u32, &str)| x.0).unwrap();
+            let v = choose_by_weight(&mut rng, &vs, &|x: &(f32, &str)| x.0).unwrap();
             *counts.get_mut(v.1).unwrap() += 1;
         }
         assert!(counts["a"] < 150, "a = {} should be < 150", counts["a"]);
@@ -806,17 +807,17 @@ mod tests {
             vec![
                 Production {
                     from: Symbol::new("foo"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("bar")]
                 },
                 Production {
                     from: Symbol::new("foo"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("baz")]
                 },
                 Production {
                     from: Symbol::new("foo"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("zap")]
                 },
             ]
@@ -862,17 +863,17 @@ mod tests {
             vec![
                 Production {
                     from: Symbol::new("A"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("A")]
                 },
                 Production {
                     from: Symbol::new("Q"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("Q")]
                 },
                 Production {
                     from: Symbol::new("Q"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("R")]
                 },
             ]
@@ -887,12 +888,12 @@ mod tests {
         let mut l = Language::new();
         l.entries.push(Production {
             from: Symbol::new("A"),
-            weight: 2,
+            weight: nf32(2.0),
             to: vec![SymbolOrLiteral::literal("Q")],
         });
         l.entries.push(Production {
             from: Symbol::new("Q"),
-            weight: 1,
+            weight: nf32(1.0),
             to: vec![SymbolOrLiteral::symbol("A")],
         });
 
@@ -910,17 +911,17 @@ mod tests {
             vec![
                 Production {
                     from: Symbol::new("A"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("A")]
                 },
                 Production {
                     from: Symbol::new("A"),
-                    weight: 2,
+                    weight: nf32(2.0),
                     to: vec![SymbolOrLiteral::literal("Q")]
                 },
                 Production {
                     from: Symbol::new("Q"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::symbol("A")]
                 },
             ]
@@ -933,7 +934,7 @@ mod tests {
             entries: vec![
                 raw::Production {
                     from: raw::Symbol::new("A"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![
                         raw::SymbolOrLiteral::symbol("B"),
                         raw::SymbolOrLiteral::literal("X"),
@@ -941,7 +942,7 @@ mod tests {
                 },
                 raw::Production {
                     from: raw::Symbol::new("B"),
-                    weight: 1,
+                    weight: nf32(1.0),
                     to: vec![raw::SymbolOrLiteral::literal("Y")],
                 },
             ],

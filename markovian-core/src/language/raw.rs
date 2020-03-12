@@ -1,3 +1,5 @@
+use std::fmt::{Error, Formatter};
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Symbol(pub String);
 
@@ -68,10 +70,33 @@ impl<T> SymbolOrLiteral<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialOrd)]
+pub struct nf32(pub f32);
+
+impl std::fmt::Debug for nf32 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::ops::AddAssign<nf32> for nf32 {
+    fn add_assign(&mut self, rhs: nf32) {
+        self.0 += rhs.0
+    }
+}
+
+impl PartialEq for nf32 {
+    fn eq(&self, other: &Self) -> bool {
+        (self.0.is_nan() && other.0.is_nan()) || (self.0 == other.0)
+    }
+}
+
+impl Eq for nf32 {}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
 pub struct Production<T> {
     pub from: Symbol,
-    pub weight: u32,
+    pub weight: nf32,
     pub to: Vec<SymbolOrLiteral<T>>,
 }
 

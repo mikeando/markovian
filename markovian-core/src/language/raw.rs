@@ -70,7 +70,7 @@ impl<T> SymbolOrLiteral<T> {
     }
 }
 
-#[derive(Clone, Copy, PartialOrd)]
+#[derive(Clone, Copy)]
 pub struct nf32(pub f32);
 
 impl std::fmt::Debug for nf32 {
@@ -92,6 +92,23 @@ impl PartialEq for nf32 {
 }
 
 impl Eq for nf32 {}
+
+impl PartialOrd for nf32 {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for nf32 {
+    fn cmp(&self, other:&Self) -> std::cmp::Ordering {
+        match (self.0.is_nan(), other.0.is_nan()) {
+            (true,true) => std::cmp::Ordering::Equal,
+            (true,false) => std::cmp::Ordering::Less,
+            (false,true) => std::cmp::Ordering::Greater,
+            (false,false) => self.0.partial_cmp(&other.0).unwrap(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
 pub struct Production<T> {

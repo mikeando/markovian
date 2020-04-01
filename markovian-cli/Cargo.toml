@@ -13,3 +13,5 @@ fern = {version="0.5", features=["colored"]}
 log = "0.4"
 markovian_core = { path = "../markovian-core" }
  
+[profile.release]
+debug = true

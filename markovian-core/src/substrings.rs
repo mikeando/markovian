@@ -92,24 +92,21 @@ mod language_manipulation {
     impl <T> LanguageChangeEntry<T> 
         where T: Clone
     {
-        pub fn apply(&self, l:&ModifiableLanguage<T>) -> ModifiableLanguage<T> {
-            let mut result: ModifiableLanguage<T> = l.clone();
+        pub fn apply(&self, l:&mut ModifiableLanguage<T>) {
             match self {
                 LanguageChangeEntry::Add(production) => {
-                    result.entries.push(production.clone());
+                    l.entries.push(production.clone());
                 }
                 LanguageChangeEntry::Remove(production) => {
-                    //TODO: Isn't there a better find/remove function?
-                    result.entries = result.entries.into_iter().filter(|p| p.id != production.id).collect()
+                    l.entries.retain(|p| p.id != production.id);
                 }
                 LanguageChangeEntry::ChangeProduction(mp,p) => {
                     //TODO: This not matching should be an error!
-                    if let Some(pp) = result.entries.iter_mut().find(|pp| pp.id == mp.id) {
+                    if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == mp.id) {
                         pp.p = p.clone()
                     }
                 }
             }
-            result
         }
     }
 
@@ -128,22 +125,21 @@ mod language_manipulation {
     impl <T> LanguageDelta<T> 
         where T:Clone
     {
-        pub fn apply(&self, l:&ModifiableLanguage<T>) -> ModifiableLanguage<T> {
-            let mut result = l.clone();
+        pub fn apply(&self, l:&mut ModifiableLanguage<T>) {
             // Apply removals first
-            let mut not_removal = vec![];
-            // TODO: use self.changes.drain_filter
             for x in &self.changes {
                 if let LanguageChangeEntry::Remove(_) = x {
-                    result = x.apply(&result);
+                    x.apply(l);
                 } else {
-                    not_removal.push(x)
+                    //
                 }
             }
-            for x in not_removal {
-                result = x.apply(&result);
+            for x in &self.changes {
+                if let LanguageChangeEntry::Remove(_) = x {
+                } else {
+                    x.apply(l);
+                }
             }
-            result
         }
     }
 
@@ -971,7 +967,7 @@ where
         println!("Suggested pair removal {:?} {} / {}", p0.as_ref().map(|p| p.cost()), i, max_extracted);
         if let Some(p0) = p0 {
             if p0.cost() <= 0.0 {
-                l = p0.apply(&l);
+                p0.apply(&mut l);
             } else {
                 break
             }
@@ -983,7 +979,6 @@ where
         }
         i += 1;
     }
-    let l = l;
 
     let proposer = language_manipulation::FactorPrefixProposer;
     let p1 = proposer.get_proposal(&l);
@@ -1005,7 +1000,8 @@ where
         .max_by_key(|p| language::raw::nf32(-p.cost()) )
         .map(|p| {
             println!("Applying {:?}", p.cost());
-            (&p.apply(&l)).into()
+            p.apply(&mut l);
+            (&l).into()
         })
 }
 
@@ -1526,7 +1522,7 @@ mod tests {
             ],
         };
 
-        let lang = language_manipulation::ModifiableLanguage::from(&lang);
+        let mut lang = language_manipulation::ModifiableLanguage::from(&lang);
         for p in &lang.entries {
             println!("{:?}", p);
         }
@@ -1537,8 +1533,8 @@ mod tests {
             println!("  {:?}", p);
         }
         println!("...modifying language...");
-        let lang2 = delta.apply(&lang);
-        for p in &lang2.entries {
+        delta.apply(&mut lang);
+        for p in &lang.entries {
             println!("{:?}", p);
         }
         unimplemented!("Need to convert productions to indices");

@@ -1,3 +1,5 @@
+#![feature(drain_filter)]
+
 pub mod language;
 pub mod markov_model;
 pub mod pattern;

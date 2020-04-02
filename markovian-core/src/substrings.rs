@@ -75,35 +75,31 @@ mod language_manipulation {
     #[derive(Debug)]
     pub enum LanguageChangeEntry<T> {
         Add(ModifiableLanguageProduction<T>),
-        Remove(ModifiableLanguageProduction<T>),
-        ChangeProduction(ModifiableLanguageProduction<T>, Production<T>)
+        Remove(RuleId, usize),
+        ChangeProduction(RuleId, usize, Production<T>),
     }
 
     impl <T> LanguageChangeEntry<T> {
         pub fn cost(&self) -> f32 {
             match self {
                 LanguageChangeEntry::Add(p) => p.p.to.len() as f32,
-                LanguageChangeEntry::ChangeProduction(old, new) => new.to.len() as f32 - old.p.to.len() as f32,
-                LanguageChangeEntry::Remove(p) => -(p.p.to.len() as f32),
+                LanguageChangeEntry::Remove(_id, len) => -(*len as f32),
+                LanguageChangeEntry::ChangeProduction(_id, len, new) => new.to.len() as f32 - (*len as f32),
             }
         }
-    }
 
-    impl <T> LanguageChangeEntry<T> 
-        where T: Clone
-    {
-        pub fn apply(&self, l:&mut ModifiableLanguage<T>) {
+        pub fn apply(self, l:&mut ModifiableLanguage<T>) {
             match self {
                 LanguageChangeEntry::Add(production) => {
-                    l.entries.push(production.clone());
+                    l.entries.push(production);
                 }
-                LanguageChangeEntry::Remove(production) => {
-                    l.entries.retain(|p| p.id != production.id);
+                LanguageChangeEntry::Remove(id, _len) => {
+                    l.entries.retain(|p| p.id != id);
                 }
-                LanguageChangeEntry::ChangeProduction(mp,p) => {
+                LanguageChangeEntry::ChangeProduction(id, _len, p) => {
                     //TODO: This not matching should be an error!
-                    if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == mp.id) {
-                        pp.p = p.clone()
+                    if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == id) {
+                        pp.p = p
                     }
                 }
             }
@@ -122,20 +118,16 @@ mod language_manipulation {
     }
 
 
-    impl <T> LanguageDelta<T> 
+    impl <T> LanguageDelta<T>
         where T:Clone
     {
-        pub fn apply(&self, l:&mut ModifiableLanguage<T>) {
+        pub fn apply(mut self, l:&mut ModifiableLanguage<T>) {
             // Apply removals first
-            for x in &self.changes {
-                if let LanguageChangeEntry::Remove(_) = x {
-                    x.apply(l);
-                } else {
-                    //
-                }
+            for x in self.changes.drain_filter(|x| if let LanguageChangeEntry::Remove(_,_) = x { true } else {false}) {
+                x.apply(l)
             }
-            for x in &self.changes {
-                if let LanguageChangeEntry::Remove(_) = x {
+            for x in self.changes {
+                if let LanguageChangeEntry::Remove(_,_) = x {
                 } else {
                     x.apply(l);
                 }
@@ -169,10 +161,10 @@ mod language_manipulation {
         pub last_id: usize,
     }
 
-    impl <T> DeltaBuilder<T> 
+    impl <T> DeltaBuilder<T>
         where T: Clone
     {
-        pub fn new(last_id:usize) -> DeltaBuilder<T> {
+        pub fn new(last_id:usize) -> DeltaBuilder<T>  {
             DeltaBuilder {
                 changes: vec![],
                 last_id
@@ -181,9 +173,7 @@ mod language_manipulation {
 
         pub fn remove(&mut self, p:&ModifiableLanguageProduction<T>) {
             self.changes.push(
-                LanguageChangeEntry::Remove(
-                    p.clone()
-                )
+                LanguageChangeEntry::Remove(p.id, p.p.to.len())
             );
         }
 
@@ -202,7 +192,8 @@ mod language_manipulation {
         pub fn change_production(&mut self, a:&ModifiableLanguageProduction<T>, b:Production<T>) {
             self.changes.push(
                 LanguageChangeEntry::ChangeProduction(
-                        a.clone(),
+                        a.id,
+                        a.p.to.len(),
                         b,
                 )
             );
@@ -992,11 +983,9 @@ where
     let p3 = proposer.get_proposal(&l);
     println!("Suggested sequence removal {:?}", p3.as_ref().map(|p| p.cost()));
 
-
-
-    [p1, p2, p3]
-        .iter()
-        .filter_map(|f| f.as_ref())
+    vec![p1, p2, p3]
+        .into_iter()
+        .filter_map(|f| f)
         .max_by_key(|p| language::raw::nf32(-p.cost()) )
         .map(|p| {
             println!("Applying {:?}", p.cost());

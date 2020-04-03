@@ -5,5 +5,5 @@ authors = ["Michael Anderson <drmikeando@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-rand = "0.7.2"
+rand = "0.7.3"
 jemallocator = "0.3.2"

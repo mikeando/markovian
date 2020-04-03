@@ -77,6 +77,7 @@ mod language_manipulation {
         Add(ModifiableLanguageProduction<T>),
         Remove(RuleId, usize),
         ChangeProduction(RuleId, usize, Production<T>),
+        Reweight(RuleId, f32),
     }
 
     impl <T> LanguageChangeEntry<T> {
@@ -85,6 +86,7 @@ mod language_manipulation {
                 LanguageChangeEntry::Add(p) => p.p.to.len() as f32,
                 LanguageChangeEntry::Remove(_id, len) => -(*len as f32),
                 LanguageChangeEntry::ChangeProduction(_id, len, new) => new.to.len() as f32 - (*len as f32),
+                LanguageChangeEntry::Reweight(_,_) => 0.0,
             }
         }
 
@@ -99,7 +101,13 @@ mod language_manipulation {
                 LanguageChangeEntry::ChangeProduction(id, _len, p) => {
                     //TODO: This not matching should be an error!
                     if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == id) {
-                        pp.p = p
+                        pp.p = p;
+                    }
+                }
+                LanguageChangeEntry::Reweight(id,w) => {
+                    //TODO: This not matching should be an error!
+                    if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == id) {
+                        pp.p.weight = nf32(w);
                     }
                 }
             }
@@ -196,6 +204,12 @@ mod language_manipulation {
                         a.p.to.len(),
                         b,
                 )
+            );
+        }
+
+        pub fn reweight(&mut self, id:RuleId, weight:f32) {
+            self.changes.push(
+                LanguageChangeEntry::Reweight(id,weight)
             );
         }
 
@@ -543,41 +557,51 @@ mod language_manipulation {
             pub m:ProductionIndexBiMap<'a, T>,
         }
 
+        pub struct Donkey<'a, 'b, T> {
+            ss: &'a BTreeMap<ProductionIndex, (RuleId, nf32)>,
+            helper: &'b TwoRuleRemovalHelperIndex<'a, T>
+        }
+
         impl <'a, T> TwoRuleRemovalHelperIndex<'a, T> 
             where T: Ord
         {
-            pub fn build(&self, s:&Symbol, prod_id_a:ProductionIndex, prod_id_b:ProductionIndex) -> RulePair<T> {
-                let ss = self.symbol_to_production_ids.get(s).unwrap();
-                let ia = ss.get(&prod_id_a).unwrap();
-                let ib = ss.get(&prod_id_b).unwrap();
-                let wa = ia.1;
-                let wb = ib.1;
-                let pa =  self.m.to_production(prod_id_a).unwrap();
-                let pb =  self.m.to_production(prod_id_b).unwrap();
-                RulePair {
-                    ia:ia.0,
-                    ib:ib.0,
-                    wa,
-                    wb,
-                    pa,
-                    pb,
+            pub fn get_donkey(&self, s:&Symbol) -> Donkey<T> {
+                let ss: &BTreeMap<ProductionIndex, (RuleId, nf32)> = self.symbol_to_production_ids.get(s).unwrap();
+                Donkey {
+                    ss,
+                    helper: self
                 }
             }
         }
 
+        impl <'a, 'b, T> Donkey<'a, 'b, T>
+            where T: Ord
+        {
+            pub fn get_rule(&self, prod_id:ProductionIndex) -> RuleWithMeta<'a, T> {
+                let id_w = self.ss.get(&prod_id).unwrap();
+                let p =  self.helper.m.to_production(prod_id).unwrap();
+                let id = id_w.0;
+                let w = id_w.1;
+                RuleWithMeta { id, w, p, }
+            }
+        }
+
+
+        pub struct RuleWithMeta<'a, T> {
+            pub id:RuleId,
+            pub w:nf32,
+            pub p:&'a [SymbolOrLiteral<T>],
+        }
+
         pub struct RulePair<'a, T> {
-            pub ia:RuleId,
-            pub ib:RuleId,
-            pub wa:nf32,
-            pub wb:nf32,
-            pub pa:&'a [SymbolOrLiteral<T>],
-            pub pb:&'a [SymbolOrLiteral<T>],
+            pub a:RuleWithMeta<'a, T>,
+            pub b:RuleWithMeta<'a, T>,
         }
 
         pub fn get_weights<T>(x:&RulePair<T>, y:&RulePair<T>) -> (f32, f32, f32) {
-            let w_ab = f32::min(x.wa.0/y.wa.0, x.wb.0/y.wb.0) * (y.wa.0 + y.wb.0);
-            let w_a = x.wa.0 - w_ab * y.wa.0 / (y.wa.0 + y.wb.0);
-            let w_b = x.wb.0 - w_ab * y.wb.0 / (y.wa.0 + y.wb.0);
+            let w_ab = f32::min(x.a.w.0/y.a.w.0, x.b.w.0/y.b.w.0) * (y.a.w.0 + y.b.w.0);
+            let w_a = x.a.w.0 - w_ab * y.a.w.0 / (y.a.w.0 + y.b.w.0);
+            let w_b = x.b.w.0 - w_ab * y.b.w.0 / (y.a.w.0 + y.b.w.0);
             (w_ab, w_a, w_b)
         }
     }
@@ -698,14 +722,25 @@ mod language_manipulation {
             
             let mut best: Option<( ProductionIndex, ProductionIndex, BTreeSet<language::raw::Symbol>, language::raw::Symbol, i32 )> = None;
             for (prod_ids,symbols) in prod_pairs_to_symbols {
-                for s in &symbols {
-                    let mut score = 0i32;
-                    let pair_ab_1: two_rule_helper::RulePair<T> = ww.build(s, prod_ids.0, prod_ids.1);
-                    let la =  pair_ab_1.pa.len() as i32;
-                    let lb =  pair_ab_1.pb.len() as i32;
 
-                    for ss in &symbols {
-                        let pair_ab_2: two_rule_helper::RulePair<T> = ww.build(ss, prod_ids.0, prod_ids.1);
+
+                let symbols_with_extras : Vec<(&language::raw::Symbol, language_manipulation::two_rule_helper::RulePair<'_, T>)> = symbols.iter()
+                    .map( |s| {
+                        let ddd = ww.get_donkey(s);
+                        let a = ddd.get_rule(prod_ids.0);
+                        let b = ddd.get_rule(prod_ids.1);
+                        let pair_ab = two_rule_helper::RulePair{a, b};
+                        (s, pair_ab)
+                    })
+                    .collect();
+
+
+                for (s, pair_ab_1) in &symbols_with_extras {
+                    let mut score = 0i32;
+                    let la =  pair_ab_1.a.p.len() as i32;
+                    let lb =  pair_ab_1.b.p.len() as i32;
+
+                    for (_ss, pair_ab_2) in &symbols_with_extras {
                         let (_w_ab, w_a, w_b) = two_rule_helper::get_weights(&pair_ab_2, &pair_ab_1);
 
                         if w_a == 0.0 {
@@ -720,7 +755,7 @@ mod language_manipulation {
                     // Generate the hypothetical delta
                     // Evaluate it.
                     if best.as_ref().map(|(_,_,_,_,best_score)| *best_score > score).unwrap_or(true) {
-                        best = Some((prod_ids.0, prod_ids.1, symbols.clone(), s.clone(), score));
+                        best = Some((prod_ids.0, prod_ids.1, symbols.clone(), (*s).clone(), score));
                     }
                 }
             }
@@ -729,7 +764,9 @@ mod language_manipulation {
             // TODO: Only do this if the score is < 0!
             //
             // Now we need to go back and reconstruct these changes:
-            let pair_ab_1: two_rule_helper::RulePair<T> = ww.build(&best.3, best.0, best.1);
+            let ddd = ww.get_donkey(&best.3);
+            let a = ddd.get_rule(best.0);
+            let b = ddd.get_rule(best.1);
 
             let symbols = best.2;
 
@@ -739,20 +776,24 @@ mod language_manipulation {
             builder.add(
                 Production{
                     from:s.clone(),
-                    weight:pair_ab_1.wa,
-                    to: pair_ab_1.pa.to_vec(),
+                    weight:a.w,
+                    to: a.p.to_vec(),
                 }
             );
             builder.add(
                 Production{
                     from:s.clone(),
-                    weight:pair_ab_1.wb,
-                    to: pair_ab_1.pb.to_vec(),
+                    weight:b.w,
+                    to: b.p.to_vec(),
                 }
             );
 
+            let pair_ab_1 = two_rule_helper::RulePair{a,b};
             for ss in &symbols {
-                let pair_ab_2: two_rule_helper::RulePair<T> = ww.build(ss, best.0, best.1);
+                let ddd = ww.get_donkey(ss);
+                let a = ddd.get_rule(best.0);
+                let b = ddd.get_rule(best.1);
+                let pair_ab_2 = two_rule_helper::RulePair{a,b};
                 let (w_ab, w_a, w_b) = two_rule_helper::get_weights(&pair_ab_2, &pair_ab_1);
 
                 builder.add(
@@ -762,25 +803,15 @@ mod language_manipulation {
                         to: vec![ SymbolOrLiteral::Symbol(s.clone()) ],
                     }
                 );
-                builder.remove(l.entries.iter().find(|p| p.id == pair_ab_2.ia).unwrap());
-                builder.remove(l.entries.iter().find(|p| p.id == pair_ab_2.ib).unwrap());
                 if w_a != 0.0 {
-                    builder.add(
-                        Production{
-                            from:ss.clone(),
-                            weight: nf32(w_a),
-                            to: pair_ab_2.pa.to_vec(),
-                        }
-                    );
+                    builder.reweight(pair_ab_2.a.id, w_a);
+                } else {
+                    builder.remove(l.entries.iter().find(|p| p.id == pair_ab_2.a.id).unwrap());
                 }
                 if  w_b != 0.0 {
-                    builder.add(
-                        Production{
-                            from:ss.clone(),
-                            weight: nf32(w_b),
-                            to: pair_ab_2.pb.to_vec(),
-                        }
-                    );
+                    builder.reweight(pair_ab_2.b.id, w_a);
+                } else {
+                    builder.remove(l.entries.iter().find(|p| p.id == pair_ab_2.b.id).unwrap());
                 }
             }
 
@@ -950,7 +981,7 @@ where
     let mut l: language_manipulation::ModifiableLanguage<T> = l.into();
     use language_manipulation::Proposer;
 
-    let max_extracted=16;
+    let max_extracted=32;
     let mut i = 0;
     loop {
         let proposer = language_manipulation::PairExtractionProposer;
@@ -992,27 +1023,6 @@ where
             p.apply(&mut l);
             (&l).into()
         })
-}
-
-pub fn new_symbol_OLD<T>(l: &language::raw::Language<T>) -> language::raw::Symbol {
-    let mut all_symbols = BTreeSet::new();
-    for p in &l.entries {
-        all_symbols.insert(p.from.clone());
-        for s in &p.to {
-            if let Some(s) = s.as_symbol() {
-                all_symbols.insert(s.clone());
-            }
-        }
-    }
-
-    let mut c: usize = 0;
-    loop {
-        let s = language::raw::Symbol(format!("s_{}", c));
-        if !all_symbols.contains(&s) {
-            return s;
-        }
-        c += 1;
-    }
 }
 
 #[cfg(test)]
@@ -1320,7 +1330,7 @@ mod tests {
             .collect();
         let l = language::raw::Language { entries };
         let mut ll = shatter_language(l);
-        let nmax:i32=7;
+        let nmax:i32=1500;
         for i in 0..nmax {
             println!("==== language size = {} @ {} / {} ====", language_size(&ll), i+1, nmax);
             ll = remove_best_subseq_from_language(&ll).unwrap();

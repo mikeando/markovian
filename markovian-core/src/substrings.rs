@@ -357,8 +357,7 @@ mod language_manipulation {
         {
             let mut m: HashMap<&[SymbolOrLiteral<T>], usize> = HashMap::new();
             for p in z {
-                let mm: HashMap<&[SymbolOrLiteral<T>], usize> = substring_count(&p.to);
-                merge(&mut m, mm)
+                substring_count_into(&p.to, &mut m);
             }
             m
         }
@@ -842,17 +841,16 @@ mod language_manipulation {
 // from a greedy manner, iteratively extracting the common sub-sequence
 // that reduces our language size by the most.
 
-pub fn substring_count<T>(v: &[T]) -> HashMap<&[T], usize>
+pub fn substring_count_into<'a, T, H>(v: &'a [T], m:&mut HashMap<&'a [T], usize, H>) 
 where
     T: Hash + Eq,
+    H: std::hash::BuildHasher,
 {
-    let mut m: HashMap<&[T], usize> = HashMap::new();
     for i in 0..v.len() {
         for j in (i + 1)..=v.len() {
             *m.entry(&v[i..j]).or_insert(0) += 1
         }
     }
-    m
 }
 
 pub fn substring_value<T>(m: HashMap<&[T], usize>) -> HashMap<&[T], usize>
@@ -938,15 +936,6 @@ pub fn shatter_language(m: language::raw::Language<String>) -> language::raw::La
 pub fn unshatter_language(m: language::raw::Language<char>) -> language::raw::Language<String> {
     language::raw::Language {
         entries: m.entries.into_iter().map(unshatter_production).collect(),
-    }
-}
-
-fn merge<A>(m: &mut HashMap<A, usize>, mm: HashMap<A, usize>)
-where
-    A: Hash + Eq,
-{
-    for e in mm {
-        *m.entry(e.0).or_insert(0) += e.1
     }
 }
 
@@ -1051,7 +1040,8 @@ mod tests {
     #[test]
     pub fn simple_substring_count() {
         let v = "abc";
-        let n = substring_count(v.as_bytes());
+        let mut n = HashMap::new();
+        substring_count_into(v.as_bytes(), &mut n);
         let r: Vec<(&str, usize)> = n
             .iter()
             .map(|(k, v)| (std::str::from_utf8(k).unwrap(), *v))
@@ -1072,7 +1062,8 @@ mod tests {
     #[test]
     pub fn substring_count_repeat() {
         let v = "ababc";
-        let n = substring_count(v.as_bytes());
+        let mut n = HashMap::new();
+        substring_count_into(v.as_bytes(), &mut n);
         let r: Vec<(&str, usize)> = n
             .iter()
             .map(|(k, v)| (std::str::from_utf8(k).unwrap(), *v))
@@ -1099,7 +1090,8 @@ mod tests {
     #[test]
     pub fn test_substring_value() {
         let v = "ababc";
-        let n = substring_count(v.as_bytes());
+        let mut n = HashMap::new();
+        substring_count_into(v.as_bytes(), &mut n);
         let n = substring_value(n);
         let r: Vec<(&str, usize)> = n
             .iter()

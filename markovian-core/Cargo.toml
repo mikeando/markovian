@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 rand = "0.7.3"
 jemallocator = "0.3.2"
+snafu = "0.6.6"

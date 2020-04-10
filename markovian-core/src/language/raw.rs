@@ -1,6 +1,7 @@
-use std::fmt::{Error, Formatter};
+use std::fmt::{Formatter};
+use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Symbol(pub String);
 
 impl Symbol {
@@ -9,7 +10,7 @@ impl Symbol {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Literal<T>(pub T);
 
 impl<T> Literal<T> {
@@ -18,7 +19,7 @@ impl<T> Literal<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SymbolOrLiteral<T> {
     Symbol(Symbol),
     Literal(Literal<T>),
@@ -91,6 +92,23 @@ impl PartialEq for nf32 {
     }
 }
 
+impl Hash for nf32 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // There's a few special cases
+        // -0 and 0 have different bit representations, 
+        // but compare as equal and so must hash to zero
+        // Also for this wrapper all NaNs compare equal. 
+        // which means we need a standard hash for them
+        if self.0 == 0.0f32  {
+            (0.0f32).to_bits().hash(state);
+        } else if self.0.is_nan() {
+            std::f32::NAN.to_bits().hash(state);
+        } else {
+            self.0.to_bits().hash(state);
+        }
+    }
+}
+
 impl Eq for nf32 {}
 
 impl PartialOrd for nf32 {
@@ -110,7 +128,7 @@ impl Ord for nf32 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Hash)]
 pub struct Production<T> {
     pub from: Symbol,
     pub weight: nf32,

@@ -1,15 +1,19 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::hash::Hash;
+use std::collections::HashMap;
+
 
 use crate::language;
 
 mod language_manipulation {
     use super::*;
     use crate::language::raw::*;
+    use crate::tombstone_map::TombstoneMap;
+    use crate::tombstone_map::Token;
 
-
-    #[derive(Copy,Clone,PartialOrd,Ord,PartialEq,Eq, Debug)]
-    pub struct RuleId(pub usize);
+    #[derive(Copy,Clone,PartialEq,Eq, Debug, PartialOrd, Ord)]
+    pub struct RuleId(pub Token);
 
     #[derive(Clone, Debug)]
     pub struct ModifiableLanguageProduction<T> {
@@ -19,16 +23,18 @@ mod language_manipulation {
 
     #[derive(Clone, Debug)]
     pub struct ModifiableLanguage<T> {
-        pub entries:Vec<ModifiableLanguageProduction<T>>,
-        pub last_id:usize,
+        //TODO: Longer term we need to split out the weight and symbol from these.
+        pub entries:TombstoneMap<Production<T>>,
+        //pub entries:Vec<ModifiableLanguageProduction<T>>,
+        //pub last_id:usize,
     }
 
     impl <T> ModifiableLanguage<T> {
         pub fn new_symbol(&self) -> language::raw::Symbol {
             let mut all_symbols = BTreeSet::new();
-            for p in &self.entries {
-                all_symbols.insert(p.p.from.clone());
-                for s in &p.p.to {
+            for p in self.entries.iter() {
+                all_symbols.insert(p.from.clone());
+                for s in &p.to {
                     if let Some(s) = s.as_symbol() {
                         all_symbols.insert(s.clone());
                     }
@@ -51,64 +57,74 @@ mod language_manipulation {
     {
         fn from(ml:&ModifiableLanguage<T>) -> Language<T> {
             Language {
-                entries: ml.entries.iter().map(|p| p.p.clone()).collect()
+                entries: ml.entries.iter().map(|p| p.clone()).collect()
             }
         }
     }
 
     impl <T> From<&Language<T>> for ModifiableLanguage<T> 
-        where T: Clone
+        where T: Clone + Hash + Eq
     {
         fn from(l:&Language<T>) -> ModifiableLanguage<T> {
-            let entries:Vec<_> = 
-            l.entries.iter().enumerate().map(
-                |(id,p)| ModifiableLanguageProduction{id:RuleId(id), p:p.clone()}
-            ).collect();
-            let last_id = entries.last().map(|p| p.id).unwrap_or(RuleId(0));
+            //Do we need a bulk constructor?
+            let mut entries: TombstoneMap<Production<T>> = TombstoneMap::new();
+            for e in &l.entries {
+                entries.insert_or_get_token(e.clone());
+            }
+
             ModifiableLanguage {
-                entries,
-                last_id:last_id.0,
+                entries
             }
         }
     }
 
     #[derive(Debug)]
     pub enum LanguageChangeEntry<T> {
-        Add(ModifiableLanguageProduction<T>),
+        Add(Production<T>),
         Remove(RuleId, usize),
         ChangeProduction(RuleId, usize, Production<T>),
         Reweight(RuleId, f32),
     }
 
-    impl <T> LanguageChangeEntry<T> {
+    impl <T> LanguageChangeEntry<T> 
+    {
         pub fn cost(&self) -> f32 {
             match self {
-                LanguageChangeEntry::Add(p) => p.p.to.len() as f32,
+                LanguageChangeEntry::Add(p) => p.to.len() as f32,
                 LanguageChangeEntry::Remove(_id, len) => -(*len as f32),
                 LanguageChangeEntry::ChangeProduction(_id, len, new) => new.to.len() as f32 - (*len as f32),
                 LanguageChangeEntry::Reweight(_,_) => 0.0,
             }
         }
+    }
 
+    impl <T> LanguageChangeEntry<T> 
+        where T: Hash + Eq
+    {
+        // TODO: A lot of time is spent in here - because it 
+        //       ends up doing a linear scan. Thats slow and dumb!
         pub fn apply(self, l:&mut ModifiableLanguage<T>) {
             match self {
                 LanguageChangeEntry::Add(production) => {
-                    l.entries.push(production);
+                    l.entries.insert_or_get_token(production);
                 }
                 LanguageChangeEntry::Remove(id, _len) => {
-                    l.entries.retain(|p| p.id != id);
+                    l.entries.remove_by_token(&id.0);
                 }
                 LanguageChangeEntry::ChangeProduction(id, _len, p) => {
-                    //TODO: This not matching should be an error!
-                    if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == id) {
-                        pp.p = p;
-                    }
+                    // There's probably a better way to do this, but it works for now
+                    // Something to watch out for is that this changes the token, 
+                    // which we dont want to do
+                    l.entries.remove_by_token(&id.0);
+                    l.entries.insert_or_get_token(p);
                 }
                 LanguageChangeEntry::Reweight(id,w) => {
-                    //TODO: This not matching should be an error!
-                    if let Some(pp) = l.entries.iter_mut().find(|pp| pp.id == id) {
-                        pp.p.weight = nf32(w);
-                    }
+                    // There's probably a better way to do this, but it works for now
+                    // Something to watch out for is that this changes the token, 
+                    // which we dont want to do
+                    let mut pc: Production<T> = l.entries.remove_by_token(&id.0).unwrap();
+                    pc.weight = nf32(w);
+                    l.entries.insert_or_get_token(pc);
                 }
             }
         }
@@ -127,7 +143,7 @@ mod language_manipulation {
 
 
     impl <T> LanguageDelta<T>
-        where T:Clone
+        where T:Clone + Hash + Eq
     {
         pub fn apply(mut self, l:&mut ModifiableLanguage<T>) {
             // Apply removals first
@@ -166,43 +182,35 @@ mod language_manipulation {
 
     pub struct DeltaBuilder<T> {
         pub changes: Vec<LanguageChangeEntry<T>>,
-        pub last_id: usize,
     }
 
     impl <T> DeltaBuilder<T>
         where T: Clone
     {
-        pub fn new(last_id:usize) -> DeltaBuilder<T>  {
+        pub fn new() -> DeltaBuilder<T>  {
             DeltaBuilder {
                 changes: vec![],
-                last_id
             }
         }
 
-        pub fn remove(&mut self, p:&ModifiableLanguageProduction<T>) {
+        pub fn remove(&mut self, rule_id: RuleId, production_len:usize) {
             self.changes.push(
-                LanguageChangeEntry::Remove(p.id, p.p.to.len())
+                LanguageChangeEntry::Remove(rule_id, production_len)
             );
         }
 
         pub fn add(&mut self, p:Production<T>) {
-            self.last_id += 1;
             self.changes.push(
-                LanguageChangeEntry::Add(
-                    ModifiableLanguageProduction {
-                        id: RuleId(self.last_id),
-                        p
-                    }
-                )
+                LanguageChangeEntry::Add(p)
             );
         }
 
-        pub fn change_production(&mut self, a:&ModifiableLanguageProduction<T>, b:Production<T>) {
+        pub fn change_production(&mut self, rule_id:RuleId, original_len:usize, new_production:Production<T>) {
             self.changes.push(
                 LanguageChangeEntry::ChangeProduction(
-                        a.id,
-                        a.p.to.len(),
-                        b,
+                        rule_id,
+                        original_len,
+                        new_production,
                 )
             );
         }
@@ -227,7 +235,7 @@ mod language_manipulation {
     {
         pub fn apply(&self, l: &ModifiableLanguage<T>) -> LanguageDelta<T> {
             let s = l.new_symbol();
-            let mut builder: DeltaBuilder<T> = DeltaBuilder::new(l.last_id);
+            let mut builder: DeltaBuilder<T> = DeltaBuilder::new();
             
             //First add the new rule
             builder.add(
@@ -240,19 +248,22 @@ mod language_manipulation {
 
             // Now we need to find and replace occurrences of this in
             // all the productions
-            for p in &l.entries {
-                builder.change_production(
-                    p,
-                    Production {
-                        from: p.p.from.clone(),
-                        weight: p.p.weight,
-                        to: replace_subsequence(
-                            &p.p.to,
-                            &self.sequence,
-                            SymbolOrLiteral::Symbol(s.clone()),
-                        ),
-                    }
-                );
+            for (r_id, r) in l.entries.iter_with_token() {
+                if has_subsequence(&r.to, &self.sequence) {
+                    builder.change_production(
+                        RuleId(r_id),
+                        r.to.len(),
+                        Production {
+                            from: r.from.clone(),
+                            weight: r.weight,
+                            to: replace_subsequence(
+                                &r.to,
+                                &self.sequence,
+                                SymbolOrLiteral::Symbol(s.clone()),
+                            ),
+                        }
+                    );
+                }
             }
 
             builder.build()
@@ -266,23 +277,24 @@ mod language_manipulation {
     {
         pub fn apply(&self, l: &ModifiableLanguage<T>) -> LanguageDelta<T> {
             let s = l.new_symbol();
-            let mut builder: DeltaBuilder<T> = DeltaBuilder::new(l.last_id);
+            let mut builder: DeltaBuilder<T> = DeltaBuilder::new();
             let mut weight: nf32 = nf32(0.0);
 
-            for e in &l.entries {
-                if (e.p.from != self.symbol) || (!e.p.to.starts_with(&self.prefix)) {
+            for (r_id, r) in l.entries.iter_with_token() {
+                if (r.from != self.symbol) || (!r.to.starts_with(&self.prefix)) {
                     continue;
                 }
 
-                builder.remove(e);
+                //TODO: Would be better to use a replace here...
+                builder.remove(RuleId(r_id), r.to.len());
                 builder.add(
                     Production {
                         from: s.clone(),
-                        weight: e.p.weight,
-                        to: e.p.to[self.prefix.len()..].to_vec(),
+                        weight: r.weight,
+                        to: r.to[self.prefix.len()..].to_vec(),
                     }
                 );
-                weight += e.p.weight;
+                weight += r.weight;
             }
             
             builder.add(
@@ -304,23 +316,23 @@ mod language_manipulation {
     {
         pub fn apply(&self, l: &ModifiableLanguage<T>) -> LanguageDelta<T> {
             let s = l.new_symbol();
-            let mut builder: DeltaBuilder<T> = DeltaBuilder::new(l.last_id);
+            let mut builder: DeltaBuilder<T> = DeltaBuilder::new();
             let mut weight: nf32 = nf32(0.0);
 
-            for e in &l.entries {
-                if (e.p.from != self.symbol) || (!e.p.to.ends_with(&self.suffix)) {
+            for (r_id, r) in l.entries.iter_with_token() {
+                if (r.from != self.symbol) || (!r.to.ends_with(&self.suffix)) {
                     continue;
                 }
 
-                builder.remove(e);
+                builder.remove(RuleId(r_id), r.to.len());
                 builder.add(
                     Production {
                         from: s.clone(),
-                        weight: e.p.weight,
-                        to: e.p.to[..(e.p.to.len() - self.suffix.len())].to_vec(),
+                        weight: r.weight,
+                        to: r.to[..(r.to.len() - self.suffix.len())].to_vec(),
                     }
                 );
-                weight += e.p.weight;
+                weight += r.weight;
             }
            
             builder.add(
@@ -339,20 +351,20 @@ mod language_manipulation {
     pub struct ExtractSequenceProposer;
 
     impl ExtractSequenceProposer {
-        pub fn production_iter_to_extraction_map<'a, T,Z>(z:Z) -> BTreeMap<&'a [SymbolOrLiteral<T>], usize>
+        pub fn production_iter_to_extraction_map<'a, T,Z>(z:Z) -> HashMap<&'a [SymbolOrLiteral<T>], usize>
         where Z: 'a + Iterator<Item=&'a Production<T>>,
-              T: Clone + Ord
+              T: Clone + Hash + Eq
         {
-            let mut m: BTreeMap<&[SymbolOrLiteral<T>], usize> = BTreeMap::new();
+            let mut m: HashMap<&[SymbolOrLiteral<T>], usize> = HashMap::new();
             for p in z {
-                let mm: BTreeMap<&[SymbolOrLiteral<T>], usize> = substring_count(&p.to);
+                let mm: HashMap<&[SymbolOrLiteral<T>], usize> = substring_count(&p.to);
                 merge(&mut m, mm)
             }
             m
         }
 
-        pub fn get_proposal_from_extraction_map<T>(m:BTreeMap<&[SymbolOrLiteral<T>], usize>) -> Option<ExtractSequence<T>> 
-              where T: Clone + Ord
+        pub fn get_proposal_from_extraction_map<T>(m:HashMap<&[SymbolOrLiteral<T>], usize>) -> Option<ExtractSequence<T>> 
+              where T: Clone + Hash + Eq
         {
             // find the best subsequence
             let m = substring_value(m);
@@ -360,7 +372,7 @@ mod language_manipulation {
             m.into_iter()
                 .max_by_key(|e| e.1)
                 .filter(|v| v.1 > 0)
-                .map(|(a, b)| ExtractSequence {
+                .map(|(a, _b)| ExtractSequence {
                         sequence: a.to_vec(),
                     })
         }
@@ -368,10 +380,10 @@ mod language_manipulation {
 
     impl<T> Proposer<T> for ExtractSequenceProposer
     where
-        T: Ord + Clone,
+        T: Hash + Eq + Clone,
     {
         fn get_proposal(&self, l: &ModifiableLanguage<T>) -> Option<LanguageDelta<T>> {
-            let mut m = Self::production_iter_to_extraction_map(l.entries.iter().map( |p| &p.p ) );
+            let m = Self::production_iter_to_extraction_map(l.entries.iter());
             Self::get_proposal_from_extraction_map(m).map( |p| p.apply(l) )
         }
 
@@ -414,9 +426,9 @@ mod language_manipulation {
 
             m.iter()
                 .map(|(k, v)| (k, score(k.1, *v)))
-                .filter(|(k, v)| *v > 0)
+                .filter(|(_k, v)| *v > 0)
                 .max_by_key(|e| e.1)
-                .map(|((symbol, prefix), s)| FactorPrefix {
+                .map(|((symbol, prefix), _s)| FactorPrefix {
                         symbol: (*symbol).clone(),
                         prefix: prefix.to_vec(),
                     })
@@ -428,7 +440,7 @@ mod language_manipulation {
         T: Ord + Clone + std::fmt::Debug,
     {
         fn get_proposal(&self, l: &ModifiableLanguage<T>) -> Option<LanguageDelta<T>> {
-            let m = Self::production_iter_to_prefix_map(l.entries.iter().map( |e| &e.p ));
+            let m = Self::production_iter_to_prefix_map(l.entries.iter());
             Self::get_proposal_from_prefix_map(&m).map(|p| p.apply(&l))
         }
 
@@ -470,9 +482,9 @@ mod language_manipulation {
 
             m.iter()
                 .map(|(k, v)| (k, score(k.1, *v)))
-                .filter(|(k, v)| *v > 0)
+                .filter(|(_k, v)| *v > 0)
                 .max_by_key(|e| e.1)
-                .map(|((symbol, suffix), s)| FactorSuffix {
+                .map(|((symbol, suffix), _s)| FactorSuffix {
                         symbol: (*symbol).clone(),
                         suffix: suffix.to_vec(),
                     })
@@ -484,7 +496,7 @@ mod language_manipulation {
         T: Ord + Clone,
     {
         fn get_proposal(&self, l: &ModifiableLanguage<T>) -> Option<LanguageDelta<T>> {
-            let mut m = Self::production_iter_to_suffix_map(l.entries.iter().map(|p| &p.p));
+            let m = Self::production_iter_to_suffix_map(l.entries.iter());
             Self::get_proposal_from_suffix_map(&m).map(|p| p.apply(l))
         }
 
@@ -615,10 +627,10 @@ mod language_manipulation {
             // Get all production RHS, with their counts.
 
             let production_counts:BTreeMap<&[SymbolOrLiteral<T>], usize> = 
-                count( l.entries.iter().map(|e| &e.p.to[..]));
+                count( l.entries.iter().map(|r| &r.to[..]));
 
             let m = ProductionIndexBiMap::from_vec(
-                l.entries.iter().map(|e| &e.p.to[..]).collect()
+                l.entries.iter().map(|r| &r.to[..]).collect()
             );
 
 
@@ -629,14 +641,14 @@ mod language_manipulation {
             // since they're the only ones we can factor out.
             // For those cases we build a two level map.
             // Symbol -> ProductionId -> (RuleId, weight)
-            for p in &l.entries {
-                if *production_counts.get(&p.p.to[..]).unwrap() > 1 {
+            for (r_id, r) in l.entries.iter_with_token() {
+                if *production_counts.get(&r.to[..]).unwrap() > 1 {
                     symbol_to_production_ids
-                        .entry(p.p.from.clone())
+                        .entry(r.from.clone())
                         .or_default()
                         .insert(
-                            m.to_idx(&p.p.to[..]).unwrap(),
-                            (p.id,p.p.weight)
+                            m.to_idx(&r.to[..]).unwrap(),
+                            (RuleId(r_id),r.weight)
                         );
                 }
             }
@@ -770,7 +782,7 @@ mod language_manipulation {
 
             let symbols = best.2;
 
-            let mut builder: DeltaBuilder<T> = DeltaBuilder::new(l.last_id); 
+            let mut builder: DeltaBuilder<T> = DeltaBuilder::new(); 
             // 2 base rules
             let s:Symbol = l.new_symbol();
             builder.add(
@@ -806,12 +818,12 @@ mod language_manipulation {
                 if w_a != 0.0 {
                     builder.reweight(pair_ab_2.a.id, w_a);
                 } else {
-                    builder.remove(l.entries.iter().find(|p| p.id == pair_ab_2.a.id).unwrap());
+                    builder.remove(pair_ab_2.a.id, pair_ab_2.a.p.len());
                 }
                 if  w_b != 0.0 {
                     builder.reweight(pair_ab_2.b.id, w_a);
                 } else {
-                    builder.remove(l.entries.iter().find(|p| p.id == pair_ab_2.b.id).unwrap());
+                    builder.remove(pair_ab_2.b.id, pair_ab_2.b.p.len());
                 }
             }
 
@@ -830,11 +842,11 @@ mod language_manipulation {
 // from a greedy manner, iteratively extracting the common sub-sequence
 // that reduces our language size by the most.
 
-pub fn substring_count<T>(v: &[T]) -> BTreeMap<&[T], usize>
+pub fn substring_count<T>(v: &[T]) -> HashMap<&[T], usize>
 where
-    T: Ord,
+    T: Hash + Eq,
 {
-    let mut m: BTreeMap<&[T], usize> = BTreeMap::new();
+    let mut m: HashMap<&[T], usize> = HashMap::new();
     for i in 0..v.len() {
         for j in (i + 1)..=v.len() {
             *m.entry(&v[i..j]).or_insert(0) += 1
@@ -843,9 +855,9 @@ where
     m
 }
 
-pub fn substring_value<T>(m: BTreeMap<&[T], usize>) -> BTreeMap<&[T], usize>
+pub fn substring_value<T>(m: HashMap<&[T], usize>) -> HashMap<&[T], usize>
 where
-    T: Ord,
+    T: Hash + Eq,
 {
     m.into_iter()
         .map(|(k, v)| (k, (v - 1) * (k.len() - 1)))
@@ -929,16 +941,21 @@ pub fn unshatter_language(m: language::raw::Language<char>) -> language::raw::La
     }
 }
 
-fn merge<A>(m: &mut BTreeMap<A, usize>, mm: BTreeMap<A, usize>)
+fn merge<A>(m: &mut HashMap<A, usize>, mm: HashMap<A, usize>)
 where
-    A: Ord,
+    A: Hash + Eq,
 {
     for e in mm {
         *m.entry(e.0).or_insert(0) += e.1
     }
 }
 
-
+pub fn has_subsequence<T>(input: &[T], needle: &[T]) -> bool 
+where
+    T: PartialEq,
+{
+    input.windows(needle.len()).any(|c| c == needle)
+}
 
 pub fn replace_subsequence<T>(input: &[T], needle: &[T], replacement: T) -> Vec<T>
 where
@@ -976,7 +993,7 @@ pub fn remove_best_subseq_from_language<T>(
     l: &language::raw::Language<T>,
 ) -> Option<language::raw::Language<T>>
 where
-    T: Ord + Clone + std::fmt::Debug,
+    T: Ord + Clone + Hash + std::fmt::Debug,
 {
     let mut l: language_manipulation::ModifiableLanguage<T> = l.into();
     use language_manipulation::Proposer;
@@ -1024,6 +1041,7 @@ where
             (&l).into()
         })
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -1304,14 +1322,18 @@ mod tests {
         l.entries.iter().map(|e| e.to.len()).sum()
     }
 
+    pub fn language_size_m<T>(l: &language_manipulation::ModifiableLanguage<T>) -> usize {
+        l.entries.iter().map(|r| r.to.len()).sum()
+    }
+
     #[test]
     pub fn test_derive_names() {
         println!("CARGO_MANIFEST_DIR={}", env!("CARGO_MANIFEST_DIR"));
         let names = format!(
             "{}/{}",
             env!("CARGO_MANIFEST_DIR"),
-            "../resources/all_names_lc.text"
-            //"../resources/boys_names.txt"
+            //"../resources/all_names_lc.text"
+            "../resources/boys_names.txt"
             //"../resources/web2.txt"
         );
         println!("names={}", names);
@@ -1337,6 +1359,68 @@ mod tests {
         }
         println!("==== language size = {} ====", language_size(&ll));
 
+        let l = unshatter_language(ll);
+        for e in l.entries {
+            println!("{:?}", e);
+        }
+    }
+
+    
+    #[test]
+    pub fn test_substring_extract_speed() {
+        use rand::{seq::IteratorRandom, thread_rng};
+        println!("CARGO_MANIFEST_DIR={}", env!("CARGO_MANIFEST_DIR"));
+        let names = format!(
+            "{}/{}",
+            env!("CARGO_MANIFEST_DIR"),
+            //"../resources/all_names_lc.text"
+            //"../resources/boys_names.txt"
+            "../resources/web2.txt"
+        );
+        println!("names={}", names);
+        let names = std::fs::read_to_string(names).unwrap();
+        for name in names.lines() {
+            println!("{}", name);
+        }
+        let s = language::raw::Symbol::new("N");
+
+        let mut rng = thread_rng();
+        let names_subset: Vec<&str> = names
+            .lines()
+            .collect()
+            //.choose_multiple(&mut rng, 20000)
+            ;
+
+
+        let entries: Vec<language::raw::Production<String>> = 
+            names_subset.into_iter()
+            .map(|name| language::raw::Production {
+                from: s.clone(),
+                weight: nf32(1.0),
+                to: vec![language::raw::SymbolOrLiteral::literal(name)],
+            })
+            .collect();
+        let l = language::raw::Language { entries };
+        let ll = shatter_language(l);
+        let nmax:i32=1500;
+        //let nmax:i32=15;
+        let mut lm: language_manipulation::ModifiableLanguage<char> = (&ll).into();
+        use language_manipulation::Proposer;
+        let proposer = language_manipulation::ExtractSequenceProposer;
+        let start = std::time::Instant::now();
+        for i in 0..nmax {
+            let now=std::time::Instant::now();
+            println!("==== language size = {} @ {} / {} : {:?} ====", language_size_m(&lm), i+1, nmax, now.duration_since(start));
+            let p = proposer.get_proposal(&lm);
+            //println!("Suggested sequence removal {:?}", p.as_ref().map(|p| p.cost()));
+            if let Some(p) = p {
+                p.apply(&mut lm);
+            } else {
+                break
+            }
+        }
+        println!("==== language size = {} ====", language_size_m(&lm));
+        let ll: language::raw::Language<char> = (&lm).into();
         let l = unshatter_language(ll);
         for e in l.entries {
             println!("{:?}", e);
@@ -1522,8 +1606,8 @@ mod tests {
         };
 
         let mut lang = language_manipulation::ModifiableLanguage::from(&lang);
-        for p in &lang.entries {
-            println!("{:?}", p);
+        for r in lang.entries.iter() {
+            println!("{:?}", r);
         }
 
         let delta = language_manipulation::PairExtractionProposer.get_proposal(&lang).unwrap();
@@ -1533,8 +1617,8 @@ mod tests {
         }
         println!("...modifying language...");
         delta.apply(&mut lang);
-        for p in &lang.entries {
-            println!("{:?}", p);
+        for r in lang.entries.iter() {
+            println!("{:?}", r);
         }
         unimplemented!("Need to convert productions to indices");
     }

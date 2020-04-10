@@ -7,6 +7,7 @@ pub mod sequence_map;
 pub mod substrings;
 pub mod symbol;
 pub mod weighted_sampler;
+pub mod tombstone_map;
 
 
 extern crate jemallocator;

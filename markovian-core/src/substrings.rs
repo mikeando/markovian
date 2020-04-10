@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::hash::Hash;
 use std::collections::HashMap;
-
+use std::collections::HashSet;
 
 use crate::language;
 
@@ -29,24 +29,32 @@ mod language_manipulation {
         //pub last_id:usize,
 
         pub substring_map: HashMap<Vec<SymbolOrLiteral<T>>, usize>,
+        pub all_symbols: HashSet<Symbol>,
+    }
+
+    pub fn add_symbols_from_production<T>(all_symbols:&mut HashSet<Symbol>, p:&Production<T>) {
+        all_symbols.insert(p.from.clone());
+        for s in &p.to {
+            if let Some(s) = s.as_symbol() {
+                all_symbols.insert(s.clone());
+            }
+        }
     }
 
     impl <T> ModifiableLanguage<T> {
-        pub fn new_symbol(&self) -> language::raw::Symbol {
-            let mut all_symbols = BTreeSet::new();
-            for p in self.entries.iter() {
-                all_symbols.insert(p.from.clone());
-                for s in &p.to {
-                    if let Some(s) = s.as_symbol() {
-                        all_symbols.insert(s.clone());
-                    }
-                }
-            }
 
+        pub fn rebuild_all_symbols(&mut self) {
+            self.all_symbols.clear();
+            for p in self.entries.iter() {
+                add_symbols_from_production(&mut self.all_symbols, p);
+            }
+        }
+
+        pub fn new_symbol(&self) -> language::raw::Symbol {
             let mut c: usize = 0;
             loop {
                 let s = language::raw::Symbol(format!("s_{}", c));
-                if !all_symbols.contains(&s) {
+                if !self.all_symbols.contains(&s) {
                     return s;
                 }
                 c += 1;
@@ -77,10 +85,14 @@ mod language_manipulation {
                 substring_count_into(&e.to, &mut substring_map);
             }
 
-            ModifiableLanguage {
+            let mut v = ModifiableLanguage {
                 entries,
                 substring_map,
-            }
+                all_symbols: HashSet::new(),
+            };
+
+            v.rebuild_all_symbols();
+            v
         }
     }
 
@@ -113,6 +125,7 @@ mod language_manipulation {
             match self {
                 LanguageChangeEntry::Add(production) => {
                     substring_count_into(&production.to, &mut l.substring_map);
+                    add_symbols_from_production(&mut l.all_symbols, &production);
                     l.entries.insert_or_get_token(production);
                 }
                 LanguageChangeEntry::Remove(id, _len) => {
@@ -127,6 +140,7 @@ mod language_manipulation {
                     let old_production = l.entries.get_by_token(&id.0).unwrap();
                     substring_uncount_into(&old_production.to, &mut l.substring_map);
                     substring_count_into(&p.to, &mut l.substring_map);
+                    add_symbols_from_production(&mut l.all_symbols, &p);
                     l.entries.remove_by_token(&id.0).unwrap();
                     l.entries.insert_or_get_token(p);
                 }

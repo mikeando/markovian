@@ -243,8 +243,8 @@ impl <T> TombstoneMap<T>
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord)]
 pub struct Token {
-    slot:usize,
-    counter:u32,
+    pub slot:usize,
+    pub counter:u32,
 }
 
 #[cfg(test)]

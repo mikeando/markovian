@@ -27,6 +27,8 @@ mod language_manipulation {
         pub entries:TombstoneMap<Production<T>>,
         //pub entries:Vec<ModifiableLanguageProduction<T>>,
         //pub last_id:usize,
+
+        pub substring_map: HashMap<Vec<SymbolOrLiteral<T>>, usize>,
     }
 
     impl <T> ModifiableLanguage<T> {
@@ -68,12 +70,16 @@ mod language_manipulation {
         fn from(l:&Language<T>) -> ModifiableLanguage<T> {
             //Do we need a bulk constructor?
             let mut entries: TombstoneMap<Production<T>> = TombstoneMap::new();
+            let mut substring_map: HashMap<Vec<SymbolOrLiteral<T>>, usize> = HashMap::new();
+
             for e in &l.entries {
                 entries.insert_or_get_token(e.clone());
+                substring_count_into(&e.to, &mut substring_map);
             }
 
             ModifiableLanguage {
-                entries
+                entries,
+                substring_map,
             }
         }
     }
@@ -99,23 +105,29 @@ mod language_manipulation {
     }
 
     impl <T> LanguageChangeEntry<T> 
-        where T: Hash + Eq
+        where T: Hash + Eq + Clone
     {
         // TODO: A lot of time is spent in here - because it 
         //       ends up doing a linear scan. Thats slow and dumb!
         pub fn apply(self, l:&mut ModifiableLanguage<T>) {
             match self {
                 LanguageChangeEntry::Add(production) => {
+                    substring_count_into(&production.to, &mut l.substring_map);
                     l.entries.insert_or_get_token(production);
                 }
                 LanguageChangeEntry::Remove(id, _len) => {
-                    l.entries.remove_by_token(&id.0);
+                    let production = l.entries.get_by_token(&id.0).unwrap();
+                    substring_uncount_into(&production.to, &mut l.substring_map);
+                    l.entries.remove_by_token(&id.0).unwrap();
                 }
                 LanguageChangeEntry::ChangeProduction(id, _len, p) => {
                     // There's probably a better way to do this, but it works for now
                     // Something to watch out for is that this changes the token, 
                     // which we dont want to do
-                    l.entries.remove_by_token(&id.0);
+                    let old_production = l.entries.get_by_token(&id.0).unwrap();
+                    substring_uncount_into(&old_production.to, &mut l.substring_map);
+                    substring_count_into(&p.to, &mut l.substring_map);
+                    l.entries.remove_by_token(&id.0).unwrap();
                     l.entries.insert_or_get_token(p);
                 }
                 LanguageChangeEntry::Reweight(id,w) => {
@@ -350,42 +362,21 @@ mod language_manipulation {
 
     pub struct ExtractSequenceProposer;
 
-    impl ExtractSequenceProposer {
-        pub fn production_iter_to_extraction_map<'a, T,Z>(z:Z) -> HashMap<&'a [SymbolOrLiteral<T>], usize>
-        where Z: 'a + Iterator<Item=&'a Production<T>>,
-              T: Clone + Hash + Eq
-        {
-            let mut m: HashMap<&[SymbolOrLiteral<T>], usize> = HashMap::new();
-            for p in z {
-                substring_count_into(&p.to, &mut m);
-            }
-            m
-        }
-
-        pub fn get_proposal_from_extraction_map<T>(m:HashMap<&[SymbolOrLiteral<T>], usize>) -> Option<ExtractSequence<T>> 
-              where T: Clone + Hash + Eq
-        {
-            // find the best subsequence
-            let m = substring_value(m);
-            // Find the one with the highest value.
-            m.into_iter()
-                .max_by_key(|e| e.1)
-                .filter(|v| v.1 > 0)
-                .map(|(a, _b)| ExtractSequence {
-                        sequence: a.to_vec(),
-                    })
-        }
-    }
-
     impl<T> Proposer<T> for ExtractSequenceProposer
     where
         T: Hash + Eq + Clone,
     {
         fn get_proposal(&self, l: &ModifiableLanguage<T>) -> Option<LanguageDelta<T>> {
-            let m = Self::production_iter_to_extraction_map(l.entries.iter());
-            Self::get_proposal_from_extraction_map(m).map( |p| p.apply(l) )
+            l.substring_map.iter()
+                .filter(|(_k,v)| **v > 0)
+                .map(|(k, v)| (k, (v - 1) * (k.len() - 1)))
+                .max_by_key(|e| e.1)
+                .filter(|v| v.1 > 0)
+                .map(|(a, _b)| ExtractSequence {
+                        sequence: a.to_vec(),
+                    })
+                .map(|s| s.apply(l))
         }
-
     }
 
     pub struct FactorPrefixProposer;
@@ -841,25 +832,37 @@ mod language_manipulation {
 // from a greedy manner, iteratively extracting the common sub-sequence
 // that reduces our language size by the most.
 
-pub fn substring_count_into<'a, T, H>(v: &'a [T], m:&mut HashMap<&'a [T], usize, H>) 
+pub fn substring_count_into<'a, T, H>(v: &'a [T], m:&mut HashMap<Vec<T>, usize, H>) 
 where
-    T: Hash + Eq,
+    T: Hash + Eq + Clone,
     H: std::hash::BuildHasher,
 {
     for i in 0..v.len() {
         for j in (i + 1)..=v.len() {
-            *m.entry(&v[i..j]).or_insert(0) += 1
+            if let Some(vv) = m.get_mut(&v[i..j]) {
+                *vv +=1;
+            } else {
+                m.insert(v[i..j].to_vec(), 1);
+            }
         }
     }
 }
 
-pub fn substring_value<T>(m: HashMap<&[T], usize>) -> HashMap<&[T], usize>
+pub fn substring_uncount_into<'a, T, H>(v: &'a [T], m:&mut HashMap<Vec<T>, usize, H>) 
 where
-    T: Hash + Eq,
+    T: Hash + Eq + Clone,
+    H: std::hash::BuildHasher,
 {
-    m.into_iter()
-        .map(|(k, v)| (k, (v - 1) * (k.len() - 1)))
-        .collect()
+    for i in 0..v.len() {
+        for j in (i + 1)..=v.len() {
+            if let Some(vv) = m.get_mut(&v[i..j]) {
+                assert!( *vv > 0);
+                *vv -=1;
+            } else {
+                unreachable!("Should not get a negative value");
+            }
+        }
+    }
 }
 
 fn shatter_literal(
@@ -1092,7 +1095,9 @@ mod tests {
         let v = "ababc";
         let mut n = HashMap::new();
         substring_count_into(v.as_bytes(), &mut n);
-        let n = substring_value(n);
+        let n: HashMap<Vec<u8>, usize> = n.into_iter()
+            .map(|(k, v)| { let l = k.len(); (k, (v - 1) * (l - 1))} )
+            .collect();
         let r: Vec<(&str, usize)> = n
             .iter()
             .map(|(k, v)| (std::str::from_utf8(k).unwrap(), *v))
@@ -1633,5 +1638,109 @@ mod tests {
         let lang = language_manipulation::ModifiableLanguage::from(&lang);
         let delta = language_manipulation::PairExtractionProposer.get_proposal(&lang);
         assert!(delta.is_none());
+    }
+
+    #[test]
+    pub fn test_add_delta_updates_substrings_map() {
+        use language::raw::Language;
+        use language::raw::SymbolOrLiteral;
+        use language_manipulation::DeltaBuilder;
+
+        let lang: Language<char> = Language {
+            entries: vec![
+                prod("A", 1, vec![l('A'),l('B'), l('C')]),
+                prod("B", 1, vec![l('B'), l('C')])
+            ]
+        };
+        let mut lang = language_manipulation::ModifiableLanguage::from(&lang);
+
+        let expected: HashMap<Vec<SymbolOrLiteral<char>>, usize> = 
+            vec![
+                (vec![l('A')], 1usize), 
+                (vec![l('B')], 2usize),
+                (vec![l('C')], 2usize),
+                (vec![l('A'), l('B')], 1usize),
+                (vec![l('B'), l('C')], 2usize),
+                (vec![l('A'), l('B'), l('C')], 1usize)
+            ].into_iter().collect();
+
+        assert_eq!(
+            lang.substring_map,
+            expected
+        );
+
+        let mut builder: DeltaBuilder<char> = DeltaBuilder::new();
+        builder.add(prod("C", 1, vec![l('B'), l('C')]));
+        let delta = builder.build();
+        delta.apply(&mut lang);
+
+        let expected: HashMap<Vec<SymbolOrLiteral<char>>, usize> = 
+        vec![
+            (vec![l('A')], 1usize), 
+            (vec![l('B')], 3usize),
+            (vec![l('C')], 3usize),
+            (vec![l('A'), l('B')], 1usize),
+            (vec![l('B'), l('C')], 3usize),
+            (vec![l('A'), l('B'), l('C')], 1usize)
+        ].into_iter().collect();
+
+        assert_eq!(
+            lang.substring_map,
+            expected
+        );
+    }
+
+    #[test]
+    pub fn test_replace_delta_updates_substrings_map() {
+        use language::raw::Language;
+        use language::raw::SymbolOrLiteral;
+        use language_manipulation::DeltaBuilder;
+        use language_manipulation::RuleId;
+        use crate::tombstone_map::Token;
+
+
+        let lang: Language<char> = Language {
+            entries: vec![
+                prod("A", 1, vec![l('A'),l('B'), l('C')]),
+                prod("B", 1, vec![l('B'), l('C')])
+            ]
+        };
+        let mut lang = language_manipulation::ModifiableLanguage::from(&lang);
+
+        let expected: HashMap<Vec<SymbolOrLiteral<char>>, usize> = 
+            vec![
+                (vec![l('A')], 1usize), 
+                (vec![l('B')], 2usize),
+                (vec![l('C')], 2usize),
+                (vec![l('A'), l('B')], 1usize),
+                (vec![l('B'), l('C')], 2usize),
+                (vec![l('A'), l('B'), l('C')], 1usize)
+            ].into_iter().collect();
+
+        assert_eq!(
+            lang.substring_map,
+            expected
+        );
+
+        let mut builder: DeltaBuilder<char> = DeltaBuilder::new();
+        builder.change_production(RuleId( Token{slot:0, counter:0}), 3, prod("C", 1, vec![l('A'), l('C')]));
+        let delta = builder.build();
+        delta.apply(&mut lang);
+
+        let expected: HashMap<Vec<SymbolOrLiteral<char>>, usize> = 
+        vec![
+            (vec![l('A')], 1usize), 
+            (vec![l('B')], 1usize),
+            (vec![l('C')], 2usize),
+            (vec![l('A'), l('B')], 0usize),
+            (vec![l('A'), l('C')], 1usize),
+            (vec![l('B'), l('C')], 1usize),
+            (vec![l('A'), l('B'), l('C')], 0usize)
+        ].into_iter().collect();
+
+        assert_eq!(
+            lang.substring_map,
+            expected
+        );
     }
 }

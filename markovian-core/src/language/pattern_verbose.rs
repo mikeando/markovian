@@ -359,7 +359,7 @@ pub fn apply_directive(
             }
             let name = directive.arguments[0]
                 .as_literal()
-                .ok_or_else(|| DirectiveError::GeneralError)?;;
+                .ok_or_else(|| DirectiveError::GeneralError)?;
             let l: raw::Language<String> = ctx
                 .get_language(&name.0)
                 .map_err(|_e| DirectiveError::GeneralError)?;

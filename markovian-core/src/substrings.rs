@@ -996,12 +996,11 @@ where
 
 
 pub fn remove_best_subseq_from_language<T>(
-    l: &language::raw::Language<T>,
-) -> Option<language::raw::Language<T>>
+    l: &mut language_manipulation::ModifiableLanguage<T>,
+) -> bool
 where
     T: Ord + Clone + Hash + std::fmt::Debug,
 {
-    let mut l: language_manipulation::ModifiableLanguage<T> = l.into();
     use language_manipulation::Proposer;
 
     let max_extracted=32;
@@ -1012,7 +1011,7 @@ where
         println!("Suggested pair removal {:?} {} / {}", p0.as_ref().map(|p| p.cost()), i, max_extracted);
         if let Some(p0) = p0 {
             if p0.cost() <= 0.0 {
-                p0.apply(&mut l);
+                p0.apply(l);
             } else {
                 break
             }
@@ -1043,9 +1042,9 @@ where
         .max_by_key(|p| language::raw::nf32(-p.cost()) )
         .map(|p| {
             println!("Applying {:?}", p.cost());
-            p.apply(&mut l);
-            (&l).into()
-        })
+            p.apply(l);
+            true
+        }).unwrap_or(false)
 }
 
 
@@ -1241,7 +1240,13 @@ mod tests {
                 prod("C", 1, vec![s("P2"), s("X"), l('a'), l('b'), s("S2")]),
             ],
         };
-        let mod_lang = remove_best_subseq_from_language(&lang).unwrap();
+
+        let mut lang2: language_manipulation::ModifiableLanguage<char> = (&lang).into();
+        let ok = remove_best_subseq_from_language(&mut lang2);
+        assert!(ok);
+
+        let mod_lang: Language<char> = (&lang2).into();
+        
         assert_eq!(
             mod_lang,
             Language {
@@ -1344,8 +1349,8 @@ mod tests {
             "{}/{}",
             env!("CARGO_MANIFEST_DIR"),
             //"../resources/all_names_lc.text"
-            "../resources/boys_names.txt"
-            //"../resources/web2.txt"
+            //"../resources/boys_names.txt"
+            "../resources/web2.txt"
         );
         println!("names={}", names);
         let names = std::fs::read_to_string(names).unwrap();
@@ -1364,10 +1369,17 @@ mod tests {
         let l = language::raw::Language { entries };
         let mut ll = shatter_language(l);
         let nmax:i32=1500;
+
+        let mut l2: language_manipulation::ModifiableLanguage<char> = (&ll).into();
+
         for i in 0..nmax {
-            println!("==== language size = {} @ {} / {} ====", language_size(&ll), i+1, nmax);
-            ll = remove_best_subseq_from_language(&ll).unwrap();
+            println!("==== language size = {} r={} @ {} / {} ====", language_size_m(&l2), l2.entries.iter().count(), i+1, nmax);
+            let ok = remove_best_subseq_from_language(&mut l2);
+            if !ok {
+                break;
+            }
         }
+        let ll: language::raw::Language<char> = (&l2).into();
         println!("==== language size = {} ====", language_size(&ll));
 
         let l = unshatter_language(ll);
@@ -1418,6 +1430,67 @@ mod tests {
         let mut lm: language_manipulation::ModifiableLanguage<char> = (&ll).into();
         use language_manipulation::Proposer;
         let proposer = language_manipulation::ExtractSequenceProposer;
+        let start = std::time::Instant::now();
+        for i in 0..nmax {
+            let now=std::time::Instant::now();
+            println!("==== language size = {} @ {} / {} : {:?} ====", language_size_m(&lm), i+1, nmax, now.duration_since(start));
+            let p = proposer.get_proposal(&lm);
+            //println!("Suggested sequence removal {:?}", p.as_ref().map(|p| p.cost()));
+            if let Some(p) = p {
+                p.apply(&mut lm);
+            } else {
+                break
+            }
+        }
+        println!("==== language size = {} ====", language_size_m(&lm));
+        let ll: language::raw::Language<char> = (&lm).into();
+        let l = unshatter_language(ll);
+        for e in l.entries {
+            println!("{:?}", e);
+        }
+    }
+
+    #[test]
+    pub fn test_factor_prefix_speed() {
+        use rand::{seq::IteratorRandom, thread_rng};
+        println!("CARGO_MANIFEST_DIR={}", env!("CARGO_MANIFEST_DIR"));
+        let names = format!(
+            "{}/{}",
+            env!("CARGO_MANIFEST_DIR"),
+            //"../resources/all_names_lc.text"
+            //"../resources/boys_names.txt"
+            "../resources/web2.txt"
+        );
+        println!("names={}", names);
+        let names = std::fs::read_to_string(names).unwrap();
+        for name in names.lines() {
+            println!("{}", name);
+        }
+        let s = language::raw::Symbol::new("N");
+
+        let mut rng = thread_rng();
+        let names_subset: Vec<&str> = names
+            .lines()
+            .collect()
+            //.choose_multiple(&mut rng, 20000)
+            ;
+
+
+        let entries: Vec<language::raw::Production<String>> = 
+            names_subset.into_iter()
+            .map(|name| language::raw::Production {
+                from: s.clone(),
+                weight: nf32(1.0),
+                to: vec![language::raw::SymbolOrLiteral::literal(name)],
+            })
+            .collect();
+        let l = language::raw::Language { entries };
+        let ll = shatter_language(l);
+        let nmax:i32=1500;
+        //let nmax:i32=15;
+        let mut lm: language_manipulation::ModifiableLanguage<char> = (&ll).into();
+        use language_manipulation::Proposer;
+        let proposer = language_manipulation::FactorPrefixProposer;
         let start = std::time::Instant::now();
         for i in 0..nmax {
             let now=std::time::Instant::now();

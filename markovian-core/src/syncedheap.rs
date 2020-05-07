@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 mod heap_internals {
     
-    pub trait SwapTracker {
-        fn swap(&mut self, index_a:usize, index_b:usize);
+    pub trait SwapTracker<X> {
+        fn swap(&mut self, index_a:usize, index_b:usize, values:&[X]);
     }
 
     pub struct SimpleHeap<'a, 'b, X, CMP, S> {
@@ -23,7 +23,7 @@ mod heap_internals {
 
     impl <'a, 'b, X, CMP, S> SimpleHeap<'a, 'b, X, CMP, S>
         where CMP: Fn(&X, &X) -> bool,
-        S: SwapTracker
+        S: SwapTracker<X>
     {
         pub fn bubble_up(&mut self, index:usize) 
             {
@@ -40,7 +40,7 @@ mod heap_internals {
             }
             if largest != index {
                 self.heap.swap(index, largest);
-                self.swap_tracker.swap(index,largest);
+                self.swap_tracker.swap(index,largest, self.heap);
                 self.bubble_up(largest);
             }
         }
@@ -53,7 +53,7 @@ mod heap_internals {
             let parent = (index - 1) / 2;
             if (self.a_less_than_b)(&self.heap[parent], &self.heap[index]) {
                 self.heap.swap(index,parent);
-                self.swap_tracker.swap(index,parent);
+                self.swap_tracker.swap(index,parent, self.heap);
                 self.bubble_down(parent);
             }
         }
@@ -119,50 +119,69 @@ struct DoNothingTracker {
 
 }
 
-impl heap_internals::SwapTracker for DoNothingTracker {
-    fn swap(&mut self, index_a:usize, index_b:usize) {}
+trait SyncedHeapTracker<K> {
+    fn added(&mut self, index:usize);
+    fn swapped(&mut self, index_a:usize, index_b:usize, values:&[(f32,K)]);
 }
 
 
-struct SyncedHeap<K> {
+struct WrappedTracker<'a, T>(&'a mut T);
+
+
+impl <'a, T, K> heap_internals::SwapTracker<(f32,K)> for WrappedTracker<'a, T>
+    where T:SyncedHeapTracker<K>
+{
+    fn swap(&mut self, index_a:usize, index_b:usize, values:&[(f32,K)]) {
+        self.0.swapped(index_a, index_b, values)
+    }
+}
+
+struct SyncedHeap<K,T> {
     vs:Vec<(f32,K)>,
+    tracker:T,
 }
 
-impl <K> SyncedHeap<K> {
-    pub fn new<C>(_v:C) -> SyncedHeap<K> {
-        SyncedHeap{ vs:vec![] }
+impl <K,T> SyncedHeap<K,T> {
+    pub fn new(tracker:T) -> SyncedHeap<K,T>
+    {
+        SyncedHeap{ vs:vec![], tracker }
     }
 
-    pub fn heapify<C>(_v:C, mut vs:Vec<(f32,K)>) -> SyncedHeap<K> {
-        let mut tracker = DoNothingTracker{};
+    pub fn heapify(mut tracker:T, mut vs:Vec<(f32,K)>) -> SyncedHeap<K,T>
+        where T: SyncedHeapTracker<K>
+    {
         let n = vs.len();
         let mut h = heap_internals::SimpleHeap {
             heap: &mut vs[..],
             heap_len: n,
             a_less_than_b: |a:&(f32,K),b:&(f32,K)| a.0 < b.0,
-            swap_tracker: &mut tracker,
+            swap_tracker: &mut WrappedTracker(&mut tracker),
             
         };
         h.heapify();
-        SyncedHeap{vs}
+        SyncedHeap{vs, tracker}
     }
 
-    pub fn add(&mut self, v:(f32, K)) {
-        let mut tracker = DoNothingTracker{};
+    pub fn add(&mut self, v:(f32, K)) 
+        where T: SyncedHeapTracker<K>
+    {
         self.vs.push(v);
         let n = self.vs.len();
+        let mut tracker = WrappedTracker(&mut self.tracker);
         let mut h = heap_internals::SimpleHeap {
             heap: &mut self.vs[..],
             heap_len: n,
             a_less_than_b: |a:&(f32,K),b:&(f32,K)| a.0 < b.0,
-            swap_tracker: &mut tracker,
+            swap_tracker:  &mut tracker,
         };
         h.bubble_down(n-1);
     }
 
-    pub fn pop(&mut self) -> Option<(f32,K)> {
-        let mut tracker = DoNothingTracker{};
+    pub fn pop(&mut self) -> Option<(f32,K)> 
+        where T: SyncedHeapTracker<K>
+    {
         let n = self.vs.len();
+        let mut tracker = WrappedTracker(&mut self.tracker);
         let mut h = heap_internals::SimpleHeap {
             heap: &mut self.vs[..],
             heap_len: n,
@@ -171,6 +190,35 @@ impl <K> SyncedHeap<K> {
         };
         h.pop();
         self.vs.pop()
+    }
+
+    pub fn peek(&self) -> Option<&(f32,K)> {
+        self.vs.get(0)
+    }
+
+    pub fn update(&mut self, index:usize, new_value:f32) 
+        where T: SyncedHeapTracker<K>
+    {
+        let n = self.vs.len();
+        let old_value = self.vs[index].0;
+        #[allow(clippy::float_cmp)]
+        {
+        if old_value == new_value {
+            return
+        }
+        }   
+        self.vs[index].0 = new_value;
+        let mut h = heap_internals::SimpleHeap {
+            heap: &mut self.vs[..],
+            heap_len: n,
+            a_less_than_b: |a:&(f32,K),b:&(f32,K)| a.0 < b.0,
+            swap_tracker: &mut WrappedTracker(&mut self.tracker),
+        };
+        if old_value < new_value {
+            h.bubble_down(index)
+        } else {
+            h.bubble_up(index)
+        }
     }
 }
 
@@ -191,6 +239,11 @@ mod test {
         }
     }
 
+    impl <X> SyncedHeapTracker<X> for EmptyClient {
+        fn added(&mut self, index:usize) {}
+        fn swapped(&mut self, index_a:usize, index_b:usize, values:&[(f32,X)]) {}
+    }
+
     struct TestSwapTracker {
         entries:Vec<(usize,usize)>
     }
@@ -201,8 +254,8 @@ mod test {
         }
     }
 
-    impl heap_internals::SwapTracker for TestSwapTracker {
-        fn swap(&mut self, index_a:usize, index_b:usize) {
+    impl <X> heap_internals::SwapTracker<X> for TestSwapTracker {
+        fn swap(&mut self, index_a:usize, index_b:usize, values:&[X]) {
             if index_a < index_b {
                 self.entries.push((index_a,index_b));
             } else {
@@ -354,6 +407,7 @@ mod test {
         assert_eq!(h.pop(), None);
     }
 
+    #[derive(Debug)]
     struct Donkey {
         speed:f32,
         heap_id:usize,
@@ -363,11 +417,40 @@ mod test {
         pub fn speed(&self) -> f32 { self.speed }
     }
 
-    struct MapProxy {}
+    struct MapProxy<'a, K, V> {
+        map:&'a mut HashMap<K,V>,
+    }
 
-    impl MapProxy {
-        pub fn new() -> MapProxy {
-            MapProxy{}
+    impl <'a,K,V> MapProxy<'a,K,V> {
+        pub fn new(map:&'a mut HashMap<K,V>) -> MapProxy<'a,K,V> {
+            MapProxy{map}
+        }
+    }
+
+    trait IndexUpdatable {
+        fn update_index(&mut self, new_index:usize);
+    }
+
+    impl IndexUpdatable for Donkey {
+        fn update_index(&mut self, new_index:usize) {
+            println!("Updating donkey : index {} => {}", self.heap_id, new_index);
+            self.heap_id = new_index;
+        }
+        
+    }
+
+    impl <'a, K, V> SyncedHeapTracker<K> for MapProxy<'a,K,V>
+    where K: std::fmt::Debug + std::cmp::Eq + std::hash::Hash,
+        V: std::fmt::Debug + IndexUpdatable
+    {
+        fn added(&mut self, index:usize) {
+            todo!()
+        }
+        fn swapped(&mut self, index_a:usize, index_b:usize, values:&[(f32,K)]) {
+            eprintln!("Swapped {}=>{:?}=>{:?} with {}=>{:?}=>{:?}", index_a, values[index_a], self.map.get(&values[index_a].1), index_b, values[index_b], self.map.get(&values[index_b].1));
+            self.map.get_mut(&values[index_a].1).unwrap().update_index(index_a);
+            self.map.get_mut(&values[index_b].1).unwrap().update_index(index_b);
+
         }
     }
 
@@ -385,16 +468,29 @@ mod test {
             (v.speed, k.clone())
         }).collect();
 
-        let h = SyncedHeap::heapify(MapProxy::new(/* m */), vs);
+        let p = MapProxy::new(&mut m);
+        let mut h = SyncedHeap::heapify( p, vs);
 
-        //let (fastest_speed, fastest_id) = h.peek();
-        //assert_eq!(fastest_speed, 5.0);
-        //assert_eq!(fastest_id, "Fred");
+        assert_eq!(h.tracker.map.get("John").unwrap().heap_id, 1);
+        assert_eq!(h.tracker.map.get("Fred").unwrap().heap_id, 0);
+
+        let (fastest_speed, fastest_id) = h.peek().unwrap();
+        assert_eq!(*fastest_speed, 5.0);
+        assert_eq!(fastest_id, "Fred");
 
         // Now we want to update one of the donkeys
-        // How much auto-magic do we think we should get from this?
+        // We know that "John" is a index 1 (Since we've only two entries and Fred is at 0)
+        // But in theory we could get that from the MapProxy too... 
+        h.update(1, 6.0);
 
-        // Now John should be the fastest.
+        // The update should notify the proxy about the changes in position too...
+
+        let (fastest_speed, fastest_id) = h.peek().unwrap();
+        assert_eq!(*fastest_speed, 6.0);
+        assert_eq!(fastest_id, "John");
+
+        assert_eq!(h.tracker.map.get("John").unwrap().heap_id, 0);
+        assert_eq!(h.tracker.map.get("Fred").unwrap().heap_id, 1);
 
 
     }

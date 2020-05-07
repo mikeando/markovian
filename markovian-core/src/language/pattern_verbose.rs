@@ -290,8 +290,8 @@ impl Language {
 
 #[derive(Debug)]
 pub enum ContextError {
-    InvalidOperation,
-    InvalidKey,
+    InvalidOperation(String),
+    InvalidKey(String),
 }
 
 pub trait Context {
@@ -301,11 +301,11 @@ pub trait Context {
 
 pub struct EmptyContext;
 impl Context for EmptyContext {
-    fn get_word_list(&self, _name: &str) -> Result<Vec<String>, ContextError> {
-        Err(ContextError::InvalidOperation)
+    fn get_word_list(&self, name: &str) -> Result<Vec<String>, ContextError> {
+        Err(ContextError::InvalidOperation(format!("{} does not exist in EmptyContext", name)))
     }
-    fn get_language(&self, _name: &str) -> Result<raw::Language<String>, ContextError> {
-        Err(ContextError::InvalidOperation)
+    fn get_language(&self, name: &str) -> Result<raw::Language<String>, ContextError> {
+        Err(ContextError::InvalidOperation(format!("Invalid language {} in EmptyContext", name)))
     }
 }
 
@@ -313,6 +313,7 @@ impl Context for EmptyContext {
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveError {
     GeneralError,
+    ImportListError(String),
 }
 
 pub fn apply_directive(
@@ -340,7 +341,7 @@ pub fn apply_directive(
             );
             for v in ctx
                 .get_word_list(&name.0)
-                .map_err(|_e| DirectiveError::GeneralError)?
+                .map_err(|e| DirectiveError::ImportListError(format!("{:?}", e)))?
             {
                 language.entries.push(raw::Production {
                     from: from.clone(),
@@ -805,17 +806,17 @@ mod tests {
         assert_eq!(
             language.entries,
             vec![
-                Production {
+                raw::Production {
                     from: Symbol::new("foo"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("bar")]
                 },
-                Production {
+                raw::Production {
                     from: Symbol::new("foo"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("baz")]
                 },
-                Production {
+                raw::Production {
                     from: Symbol::new("foo"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("zap")]
@@ -833,13 +834,13 @@ mod tests {
         fn get_word_list(&self, name: &str) -> Result<Vec<String>, ContextError> {
             match self.word_lists.get(name) {
                 Some(v) => Ok(v.clone()),
-                None => Err(ContextError::InvalidKey),
+                None => Err(ContextError::InvalidKey(format!("word list '{}' not found in MockContext", name))),
             }
         }
         fn get_language(&self, name: &str) -> Result<raw::Language<String>, ContextError> {
             match self.languages.get(name) {
                 Some(v) => Ok(v.clone()),
-                None => Err(ContextError::InvalidKey),
+                None => Err(ContextError::InvalidKey(format!("language '{}' not found in MockContext", name))),
             }
         }
     }
@@ -861,17 +862,17 @@ mod tests {
         assert_eq!(
             language.entries,
             vec![
-                Production {
+                raw::Production {
                     from: Symbol::new("A"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("A")]
                 },
-                Production {
+                raw::Production {
                     from: Symbol::new("Q"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("Q")]
                 },
-                Production {
+                raw::Production {
                     from: Symbol::new("Q"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("R")]
@@ -886,12 +887,12 @@ mod tests {
 
         let mut languages: BTreeMap<String, Language<String>> = BTreeMap::new();
         let mut l = Language::new();
-        l.entries.push(Production {
+        l.entries.push(raw::Production {
             from: Symbol::new("A"),
             weight: nf32(2.0),
             to: vec![SymbolOrLiteral::literal("Q")],
         });
-        l.entries.push(Production {
+        l.entries.push(raw::Production {
             from: Symbol::new("Q"),
             weight: nf32(1.0),
             to: vec![SymbolOrLiteral::symbol("A")],
@@ -909,17 +910,17 @@ mod tests {
         assert_eq!(
             language.entries,
             vec![
-                Production {
+                raw::Production {
                     from: Symbol::new("A"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::literal("A")]
                 },
-                Production {
+                raw::Production {
                     from: Symbol::new("A"),
                     weight: nf32(2.0),
                     to: vec![SymbolOrLiteral::literal("Q")]
                 },
-                Production {
+                raw::Production {
                     from: Symbol::new("Q"),
                     weight: nf32(1.0),
                     to: vec![SymbolOrLiteral::symbol("A")]

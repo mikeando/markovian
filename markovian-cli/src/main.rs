@@ -780,7 +780,13 @@ mod grammar_loader_context {
 
     impl Context for GrammarLoaderContext {
         fn get_word_list(&self, _name: &str) -> Result<Vec<String>, ContextError> {
-            unimplemented!()
+            let list_path = self.path.join(_name);
+            let content = std::fs::read_to_string(&list_path)
+                    .map_err( |e| {
+                        ContextError::InvalidKey(format!("Unable to load word list for {}: {}", list_path.to_string_lossy(), e))
+                    });
+            let content = content?;
+            Ok(content.lines().map(|l| l.to_string()).collect())
         }
 
         fn get_language(&self, _name: &str) -> Result<Language<String>, ContextError> {
@@ -791,29 +797,58 @@ mod grammar_loader_context {
 
 use grammar_loader_context::GrammarLoaderContext;
 
-fn grammar(opt: GrammarOpt) {
+struct GrammarError(String);
+
+impl From<std::io::Error> for GrammarError {
+    fn from(e: std::io::Error) -> Self {
+        GrammarError(format!("IO Error: {}", e))
+    }
+}
+
+impl From<markovian_core::language::pattern_verbose::LoadLanguageError> for GrammarError {
+    fn from(e: markovian_core::language::pattern_verbose::LoadLanguageError) -> Self {
+        GrammarError(format!("Language Loading Error: {:?}", e))
+    }
+}
+
+impl From<markovian_core::language::pattern_verbose::ConversionError> for GrammarError {
+    fn from(e: markovian_core::language::pattern_verbose::ConversionError) -> Self {
+        GrammarError(format!("Language Conversion Error: {:?}", e))
+    }
+}
+
+impl From<markovian_core::language::pattern_verbose::ExpansionError> for GrammarError {
+    fn from(e: markovian_core::language::pattern_verbose::ExpansionError) -> Self {
+        GrammarError(format!("Language Expansion Error: {:?}", e))
+    }
+}
+
+fn grammar(opt: GrammarOpt) -> Result<(), GrammarError> {
     println!("{:?}", opt);
     let mut rng = rand::thread_rng();
     let mut ctx = GrammarLoaderContext::new(opt.library_directory);
-    let rules = std::fs::read_to_string(opt.rules_file).unwrap();
+    let rules = std::fs::read_to_string(opt.rules_file)?;
     let language =
-        markovian_core::language::pattern_verbose::load_language(&rules, &mut ctx).unwrap();
+        markovian_core::language::pattern_verbose::load_language(&rules, &mut ctx)?;
     let language =
-        markovian_core::language::pattern_verbose::Language::from_raw(&language).unwrap();
+        markovian_core::language::pattern_verbose::Language::from_raw(&language)?;
     let s = language
         .expand(
             &[language.token_by_name(opt.start_token).unwrap()],
             &mut rng,
-        )
-        .unwrap();
+        )?;
     println!("{}", s);
+    Ok(())
 }
 
 fn main() {
     let mode = Mode::from_args();
     match mode {
         Mode::Markov(opt) => markov(opt),
-        Mode::Grammar(opt) => grammar(opt),
+        Mode::Grammar(opt) => match grammar(opt) {
+            Ok(()) => {},
+            Err(GrammarError(s)) => eprintln!("ERROR\n{:?}",s)
+        }
     }
 }
 

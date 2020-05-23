@@ -719,14 +719,22 @@ mod tests {
         // it appears before a given character.
 
         let mut bigrams: BTreeMap<(Symbol, Symbol), usize> = BTreeMap::new();
-        bigrams.insert((a(), a()), 2);
-        bigrams.insert((a(), b()), 1);
-        bigrams.insert((c(), a()), 3);
-        bigrams.insert((c(), b()), 1);
+        bigrams.insert((a(), a()), 20);
+        bigrams.insert((a(), b()), 10);
+        bigrams.insert((c(), a()), 30);
+        bigrams.insert((c(), b()), 10);
 
         let v = normalize(vec![2., 0., 3., 2., 1., 0.]);
         let symbols = vec![a(), b(), c()];
-        assert_eq!(v, repr_for_symbol(&a(), &symbols, &bigrams));
+
+        fn cmp_eq(a: f32, b: f32) -> bool {
+            (a - b).abs() <= 1e-5 * 0.5 * (a.abs() + b.abs())
+        }
+        fn cmp_vec_eq(aa: &[f32], bb: &[f32]) -> bool {
+            aa.iter().zip(bb.iter()).all(|(a, b)| cmp_eq(*a, *b))
+        }
+        let r = repr_for_symbol(&a(), &symbols, &bigrams);
+        assert!(cmp_vec_eq(&v, &r), "{:?} != {:?}", v, r);
 
         let rr: Vec<_> = symbols
             .iter()
@@ -743,6 +751,5 @@ mod tests {
             }
             println!()
         }
-        assert!(false)
     }
 }

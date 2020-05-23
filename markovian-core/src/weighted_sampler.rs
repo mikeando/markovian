@@ -35,3 +35,12 @@ where
         unreachable!();
     }
 }
+
+impl<T> Default for WeightedSampler<T>
+where
+    T: Ord + Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}

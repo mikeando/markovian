@@ -1,4 +1,4 @@
-use log::{debug, error, info, log_enabled, trace, warn};
+use log::{debug, info, log_enabled};
 use rand::Rng;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -7,9 +7,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use markovian_core::markov_model::MarkovModel;
-use markovian_core::sequence_map;
 use markovian_core::symbol::Symbol;
-use markovian_core::weighted_sampler::WeightedSampler;
 
 fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
     s.as_bytes().iter().cloned().map(Symbol::Char).collect()
@@ -196,27 +194,27 @@ fn reduce<R: Rng>(id: ProductionRuleId, rules: &ProductionRuleSet, r: &mut R) ->
 }
 
 fn test_productions() {
-    let T1_id = ProductionRuleId(1);
-    let T1 = ProductionRule::Terminal(b'A');
-    let T2_id = ProductionRuleId(2);
-    let T2 = ProductionRule::Terminal(b'B');
+    let t1_id = ProductionRuleId(1);
+    let t1 = ProductionRule::Terminal(b'A');
+    let t2_id = ProductionRuleId(2);
+    let t2 = ProductionRule::Terminal(b'B');
 
-    let P1_id = ProductionRuleId(0);
-    let P1 = ProductionRule::Compound(ProductionRuleCompound {
-        values: vec![(1, vec![T1_id]), (1, vec![T2_id]), (1, vec![P1_id, P1_id])],
+    let p1_id = ProductionRuleId(0);
+    let p1 = ProductionRule::Compound(ProductionRuleCompound {
+        values: vec![(1, vec![t1_id]), (1, vec![t2_id]), (1, vec![t1_id, t1_id])],
     });
 
     let mut rules_map = BTreeMap::new();
-    rules_map.insert(T1_id, T1);
-    rules_map.insert(T2_id, T2);
-    rules_map.insert(P1_id, P1);
+    rules_map.insert(t1_id, t1);
+    rules_map.insert(t2_id, t2);
+    rules_map.insert(p1_id, p1);
 
     let rules = ProductionRuleSet { rules: rules_map };
     let mut rng = rand::thread_rng();
-    for i in 0..10 {
+    for _i in 0..10 {
         println!(
             "P1=>{:?}",
-            String::from_utf8(reduce(P1_id, &rules, &mut rng))
+            String::from_utf8(reduce(p1_id, &rules, &mut rng))
         );
     }
 }
@@ -258,8 +256,6 @@ struct Opt {
 }
 
 fn setup_logging(verbose: i32) {
-    use fern::colors::{Color, ColoredLevelConfig};
-
     let level = match verbose {
         v if v <= 0 => log::LevelFilter::Warn,
         1 => log::LevelFilter::Info,
@@ -323,7 +319,7 @@ where
         if i >= nh {
             break;
         }
-        if i + nn <= nh && &haystack[i..i + nn] == &needle[..] {
+        if i + nn <= nh && haystack[i..i + nn] == needle[..] {
             result.extend_from_slice(&replacement[..]);
             i += nn;
         } else {
@@ -337,7 +333,7 @@ where
 //TODO: At the moment this just prints the
 //      cases we could reduce - it doesn't actually reduce them
 fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
-    let mut result = input_names.clone();
+    let mut result = input_names;
     use log::Level::Info;
     // Hunt for symbols that are only ever used before another
     // These can be reduced to a combined symbol cheaply
@@ -423,7 +419,7 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
     result
 }
 
-fn get_sorted_bigram_counts(input_names: &Vec<Vec<Symbol>>) -> Vec<((Symbol, Symbol), usize)> {
+fn get_sorted_bigram_counts(input_names: &[Vec<Symbol>]) -> Vec<((Symbol, Symbol), usize)> {
     let bigram_counts_map = get_bigram_counts(&input_names);
     let mut bigram_counts: Vec<_> = bigram_counts_map.into_iter().collect();
     bigram_counts.sort_by_key(|e| e.1);
@@ -468,9 +464,51 @@ fn convert_common_bigrams_to_symbols(
     input_names
 }
 
+fn log_symbol_counts(input_names: &[Vec<Symbol>]) {
+    let symbol_counts = get_symbol_counts(&input_names);
+    let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
+    symbol_counts.sort_by_key(|e| e.1);
+    symbol_counts.reverse();
+    for x in &symbol_counts {
+        info!("{:?} {:?}", symbolrefs_to_word(&[&x.0], false), x.1);
+    }
+}
+
+fn log_bigram_counts(input_names: &[Vec<Symbol>]) {
+    use std::cmp::min;
+
+    let bigram_counts = get_bigram_counts(&input_names);
+    let mut bigram_counts: Vec<_> = bigram_counts.into_iter().collect();
+    bigram_counts.sort_by_key(|e| e.1);
+    bigram_counts.reverse();
+    for x in &bigram_counts[0..min(10, bigram_counts.len())] {
+        //let v = [(x.0).0, (x.0).1];
+        info!(
+            "{:?} {:?}",
+            symbolrefs_to_word(&[&(x.0).0, &(x.0).1], false),
+            x.1
+        );
+    }
+}
+
+fn log_trigram_counts(input_names: &[Vec<Symbol>]) {
+    use std::cmp::min;
+
+    let trigram_counts = get_trigram_counts(&input_names);
+    let mut trigram_counts: Vec<_> = trigram_counts.into_iter().collect();
+    trigram_counts.sort_by_key(|e| e.1);
+    trigram_counts.reverse();
+    for x in &trigram_counts[0..min(10, trigram_counts.len())] {
+        info!(
+            "{:?} {:?}",
+            symbolrefs_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false),
+            x.1
+        );
+    }
+}
+
 fn main() {
     use log::Level::Info;
-    use std::cmp::min;
 
     let opt = Opt::from_args();
     println!("{:?}", opt);
@@ -478,6 +516,9 @@ fn main() {
         test_productions();
         return;
     }
+
+    let verbose: i32 = opt.verbose;
+    setup_logging(verbose);
 
     let input_names_raw: Vec<String> = opt
         .name_file
@@ -495,8 +536,7 @@ fn main() {
         .collect();
 
     //let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
-    let verbose: i32 = opt.verbose;
-    setup_logging(verbose);
+
     let order = 3;
     let print_sep = verbose >= 1 || opt.print_separators;
 
@@ -511,45 +551,10 @@ fn main() {
     info!("{:?} raw entries", input_names_raw.len());
     info!("{:?} entries", input_names.len());
 
-    let symbol_counts = get_symbol_counts(&input_names);
-    let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
-    symbol_counts.sort_by_key(|e| e.1);
-    symbol_counts.reverse();
     if log_enabled!(Info) {
-        for x in &symbol_counts {
-            info!("{:?} {:?}", symbolrefs_to_word(&[&x.0], false), x.1);
-        }
-    }
-
-    //println!("{:?}", bigram_counts);
-    let bigram_counts = get_bigram_counts(&input_names);
-    let mut bigram_counts: Vec<_> = bigram_counts.into_iter().collect();
-    bigram_counts.sort_by_key(|e| e.1);
-    bigram_counts.reverse();
-    if log_enabled!(Info) {
-        for x in &bigram_counts[0..min(10, bigram_counts.len())] {
-            //let v = [(x.0).0, (x.0).1];
-            info!(
-                "{:?} {:?}",
-                symbolrefs_to_word(&[&(x.0).0, &(x.0).1], false),
-                x.1
-            );
-        }
-    }
-
-    //println!("{:?}", bigram_counts);
-    let trigram_counts = get_trigram_counts(&input_names);
-    let mut trigram_counts: Vec<_> = trigram_counts.into_iter().collect();
-    trigram_counts.sort_by_key(|e| e.1);
-    trigram_counts.reverse();
-    if log_enabled!(Info) {
-        for x in &trigram_counts[0..min(10, trigram_counts.len())] {
-            info!(
-                "{:?} {:?}",
-                symbolrefs_to_word(&[&(x.0).0, &(x.0).1, &(x.0).2], false),
-                x.1
-            );
-        }
+        log_symbol_counts(&input_names);
+        log_bigram_counts(&input_names);
+        log_trigram_counts(&input_names);
     }
 
     //Good to get rid of the rare cases well before we hit any other optimisations.
@@ -585,7 +590,7 @@ fn main() {
 
         for (ra, sa) in reprs.iter().zip(symbols.iter()) {
             use std::cmp::Ordering;
-            let (c, sb) = reprs
+            let (c, _sb) = reprs
                 .iter()
                 .zip(symbols.iter())
                 .filter(|(_rb, sb)| sb != &sa)
@@ -599,7 +604,7 @@ fn main() {
                     .zip(symbols.iter())
                     .filter(|(_rb, sb)| sb != &sa)
                     .map(|(rb, sb)| (dot(ra, rb), sb))
-                    .filter(|(cb, sb)| *cb > 0.8 * c)
+                    .filter(|(cb, _sb)| *cb > 0.8 * c)
                     .map(|(cb, sb)| (cb, symbols_to_word(&[sb.clone()], false)))
                     .collect();
                 println!("{} {:?}", symbols_to_word(&[sa.clone()], false), sbs);
@@ -670,7 +675,7 @@ pub fn normalize(v: Vec<f32>) -> Vec<f32> {
 
 fn repr_for_symbol(
     s: &Symbol,
-    symbols: &Vec<Symbol>,
+    symbols: &[Symbol],
     bigrams: &BTreeMap<(Symbol, Symbol), usize>,
 ) -> Vec<f32> {
     let mut v: Vec<usize> = vec![];
@@ -687,37 +692,9 @@ fn repr_for_symbol(
     normalize(v)
 }
 
-fn dot(a: &Vec<f32>, b: &Vec<f32>) -> f32 {
+fn dot(a: &[f32], b: &[f32]) -> f32 {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b.iter()).map(|(aa, bb)| aa * bb).sum()
-}
-
-struct PersonId(u64);
-struct HouseId(u64);
-
-struct Person {}
-
-enum HouseRole {
-    Head,
-    Spouse,
-    Descendent,
-    TitledMember,
-}
-
-struct HouseMember {
-    person: PersonId,
-    role: HouseRole,
-    house: HouseId,
-}
-
-struct House {
-    name: String,
-    primary: Option<PersonId>,
-}
-
-fn house_gen() {
-    // Generate the house name
-    //
 }
 
 #[cfg(test)]

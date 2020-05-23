@@ -43,6 +43,15 @@ where
     }
 }
 
+impl<K, T> Default for SequenceMapNode<K, T>
+where
+    K: Ord + Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

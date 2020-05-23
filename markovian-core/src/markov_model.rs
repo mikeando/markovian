@@ -86,14 +86,14 @@ impl MarkovModel {
         rng: &mut R,
     ) -> Vec<Symbol> {
         let mut context = self.initial_context();
-        let L = context.len();
+        let n = context.len();
         let mut symbols = vec![];
 
         // Put in the prefix.
         for s in prefix_symbols {
             symbols.push(s.clone());
             context.rotate_left(1);
-            context[L - 1] = s.clone();
+            context[n - 1] = s.clone();
         }
 
         //Handle the rest
@@ -106,7 +106,7 @@ impl MarkovModel {
             }
             symbols.push(s.clone());
             context.rotate_left(1);
-            context[L - 1] = s;
+            context[n - 1] = s;
         }
         symbols
     }

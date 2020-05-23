@@ -6,11 +6,10 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+use markovian_core::markov_model::MarkovModel;
 use markovian_core::sequence_map;
 use markovian_core::symbol::Symbol;
 use markovian_core::weighted_sampler::WeightedSampler;
-use markovian_core::markov_model::MarkovModel;
-
 
 fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
     s.as_bytes().iter().cloned().map(Symbol::Char).collect()
@@ -641,7 +640,7 @@ fn main() {
         if opt.reverse {
             symbs.reverse();
         }
-        let result  = symbols_to_word(&symbs, print_sep);
+        let result = symbols_to_word(&symbs, print_sep);
         if print_sep {
             println!("{:?}", result);
         } else {

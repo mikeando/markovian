@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
-use rand::Rng;
 use crate::symbol::Symbol;
 use crate::weighted_sampler::WeightedSampler;
+use rand::Rng;
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct MarkovModel {
@@ -80,7 +80,11 @@ impl MarkovModel {
         result
     }
 
-    pub fn sample_starting_with<R: Rng>(&self, prefix_symbols: &[Symbol], rng: &mut R) -> Vec<Symbol> {
+    pub fn sample_starting_with<R: Rng>(
+        &self,
+        prefix_symbols: &[Symbol],
+        rng: &mut R,
+    ) -> Vec<Symbol> {
         let mut context = self.initial_context();
         let L = context.len();
         let mut symbols = vec![];

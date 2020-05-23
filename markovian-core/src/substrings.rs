@@ -1058,10 +1058,11 @@ mod tests {
         let v = "abc";
         let mut n = HashMap::new();
         substring_count_into(v.as_bytes(), &mut n);
-        let r: Vec<(&str, usize)> = n
+        let mut r: Vec<(&str, usize)> = n
             .iter()
             .map(|(k, v)| (std::str::from_utf8(k).unwrap(), *v))
             .collect();
+        r.sort_by_key(|v| v.0);
         assert_eq!(
             r,
             vec![
@@ -1080,10 +1081,11 @@ mod tests {
         let v = "ababc";
         let mut n = HashMap::new();
         substring_count_into(v.as_bytes(), &mut n);
-        let r: Vec<(&str, usize)> = n
+        let mut r: Vec<(&str, usize)> = n
             .iter()
             .map(|(k, v)| (std::str::from_utf8(k).unwrap(), *v))
             .collect();
+        r.sort_by_key(|v| v.0);
         assert_eq!(
             r,
             vec![
@@ -1111,10 +1113,11 @@ mod tests {
         let n: HashMap<Vec<u8>, usize> = n.into_iter()
             .map(|(k, v)| { let l = k.len(); (k, (v - 1) * (l - 1))} )
             .collect();
-        let r: Vec<(&str, usize)> = n
+        let mut r: Vec<(&str, usize)> = n
             .iter()
             .map(|(k, v)| (std::str::from_utf8(k).unwrap(), *v))
             .collect();
+        r.sort_by_key(|v| v.0);
         assert_eq!(
             r,
             vec![

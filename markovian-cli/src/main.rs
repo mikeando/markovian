@@ -1,8 +1,6 @@
 use log::{debug, info, log_enabled};
-use rand::Rng;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -137,88 +135,6 @@ fn get_trigram_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol, 
     trigram_counts
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct ProductionRuleId(u64);
-
-#[derive(Debug, Clone)]
-struct ProductionRuleCompound {
-    values: Vec<(u32, Vec<ProductionRuleId>)>,
-}
-
-impl ProductionRuleCompound {
-    pub fn evaluate<R: Rng>(&self, r: &mut R) -> Vec<ProductionRuleId> {
-        let sum_w: u32 = self.values.iter().map(|v| v.0).sum();
-        let mut v: u32 = r.gen_range(0, sum_w);
-        for r in &self.values {
-            if r.0 < v {
-                //TODO: Would be nice to avoid this copy.
-                return r.1.clone();
-            }
-            v -= r.0;
-        }
-        unreachable!()
-    }
-}
-
-#[derive(Debug, Clone)]
-enum ProductionRule {
-    Terminal(u8),
-    Compound(ProductionRuleCompound),
-}
-
-struct ProductionRuleSet {
-    rules: BTreeMap<ProductionRuleId, ProductionRule>,
-}
-
-fn reduce<R: Rng>(id: ProductionRuleId, rules: &ProductionRuleSet, r: &mut R) -> Vec<u8> {
-    let mut pending: VecDeque<ProductionRuleId> = VecDeque::new();
-    let mut result: Vec<u8> = vec![];
-    pending.push_front(id);
-    while !pending.is_empty() {
-        let next_id = pending.pop_front().unwrap();
-        let rule = rules.rules.get(&next_id).unwrap();
-        match rule {
-            ProductionRule::Terminal(v) => {
-                result.push(*v);
-            }
-            ProductionRule::Compound(compound_rule) => {
-                let mut v = compound_rule.evaluate(r);
-                v.reverse();
-                for x in v.iter() {
-                    pending.push_front(*x)
-                }
-            }
-        }
-    }
-    result
-}
-
-fn test_productions() {
-    let t1_id = ProductionRuleId(1);
-    let t1 = ProductionRule::Terminal(b'A');
-    let t2_id = ProductionRuleId(2);
-    let t2 = ProductionRule::Terminal(b'B');
-
-    let p1_id = ProductionRuleId(0);
-    let p1 = ProductionRule::Compound(ProductionRuleCompound {
-        values: vec![(1, vec![t1_id]), (1, vec![t2_id]), (1, vec![t1_id, t1_id])],
-    });
-
-    let mut rules_map = BTreeMap::new();
-    rules_map.insert(t1_id, t1);
-    rules_map.insert(t2_id, t2);
-    rules_map.insert(p1_id, p1);
-
-    let rules = ProductionRuleSet { rules: rules_map };
-    let mut rng = rand::thread_rng();
-    for _i in 0..10 {
-        println!(
-            "P1=>{:?}",
-            String::from_utf8(reduce(p1_id, &rules, &mut rng))
-        );
-    }
-}
-
 #[derive(Debug, StructOpt)]
 #[structopt(name = "markovian", about = "Markov based name generator.")]
 struct Opt {
@@ -233,10 +149,6 @@ struct Opt {
     /// Verbosity level
     #[structopt(short, long, default_value = "0")]
     verbose: i32,
-
-    /// Run productions test
-    #[structopt(short, long)]
-    run_productions_test: bool,
 
     /// prefix
     #[structopt(short, long)]
@@ -511,11 +423,7 @@ fn main() {
     use log::Level::Info;
 
     let opt = Opt::from_args();
-    println!("{:?}", opt);
-    if opt.run_productions_test {
-        test_productions();
-        return;
-    }
+    debug!("{:?}", opt);
 
     let verbose: i32 = opt.verbose;
     setup_logging(verbose);
@@ -652,17 +560,6 @@ fn main() {
             println!("{}", result);
         }
     }
-
-    /*
-        let mut model = MarkovModel::new(support, order, prior);
-        for name in names {
-            model.observe(name.chars().collect())
-        }
-
-        println!("{}", model.generate());
-
-        println!("Hello, world!");
-    */
 }
 
 pub fn normalize(v: Vec<f32>) -> Vec<f32> {

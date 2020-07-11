@@ -11,8 +11,10 @@ fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
     s.as_bytes().iter().cloned().map(Symbol::Char).collect()
 }
 
-fn reduce_symbols(v: Vec<Symbol>, key: (&Symbol, &Symbol), value: &Symbol) -> Vec<Symbol> {
-    let mut result: Vec<Symbol> = vec![];
+fn reduce_symbols<T>(v: Vec<T>, key: (&T, &T), value: &T) -> Vec<T> 
+where T: Eq + Clone
+{
+    let mut result: Vec<T> = vec![];
     let mut skip = false;
     for i in 0..v.len() - 1 {
         if skip {
@@ -30,12 +32,38 @@ fn reduce_symbols(v: Vec<Symbol>, key: (&Symbol, &Symbol), value: &Symbol) -> Ve
         v.last()
             .iter()
             .cloned()
-            .for_each(|s: &Symbol| result.push(s.clone()));
+            .for_each(|s: &T| result.push(s.clone()));
     }
     result
 }
 
-fn symbols_to_vec(v: &[Symbol], insert_sep: bool) -> Vec<u8> {
+trait AppendToVec {
+    fn append_to_vec(&self, v:&mut Vec<u8>);
+}
+
+impl AppendToVec for Symbol {
+    fn append_to_vec(&self, v:&mut Vec<u8>) {
+        match self {
+            Symbol::Start => {
+                v.push(b'^');
+            }
+            Symbol::End => {
+                v.push(b'$');
+            }
+            Symbol::Char(c) => {
+                v.push(*c);
+            }
+            Symbol::Compound(cs) => {
+                v.append(&mut cs.clone());
+            }
+        }
+    }
+
+}
+
+fn symbols_to_vec<T>(v: &[T], insert_sep: bool) -> Vec<u8>
+where T: AppendToVec
+{
     let mut result: Vec<u8> = vec![];
     let mut is_start = true;
     for s in v {
@@ -46,25 +74,14 @@ fn symbols_to_vec(v: &[Symbol], insert_sep: bool) -> Vec<u8> {
                 result.push(b'|')
             }
         }
-        match s {
-            Symbol::Start => {
-                result.push(b'^');
-            }
-            Symbol::End => {
-                result.push(b'$');
-            }
-            Symbol::Char(c) => {
-                result.push(*c);
-            }
-            Symbol::Compound(cs) => {
-                result.append(&mut cs.clone());
-            }
-        }
+        s.append_to_vec(&mut result);
     }
     result
 }
 
-fn symbolrefs_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
+fn symbolrefs_to_vec<T>(v: &[&T], insert_sep: bool) -> Vec<u8>
+where T: AppendToVec
+{
     let mut result: Vec<u8> = vec![];
     let mut is_start = true;
     for s in v {
@@ -75,34 +92,23 @@ fn symbolrefs_to_vec(v: &[&Symbol], insert_sep: bool) -> Vec<u8> {
                 result.push(b'|')
             }
         }
-        match s {
-            Symbol::Start => {
-                result.push(b'^');
-            }
-            Symbol::End => {
-                result.push(b'$');
-            }
-            Symbol::Char(c) => {
-                result.push(*c);
-            }
-            Symbol::Compound(cs) => {
-                result.append(&mut cs.clone());
-            }
-        }
+        s.append_to_vec(&mut result);
     }
     result
 }
 
-fn symbols_to_word(v: &[Symbol], insert_sep: bool) -> String {
+fn symbols_to_word<T:AppendToVec>(v: &[T], insert_sep: bool) -> String {
     String::from_utf8_lossy(&symbols_to_vec(v, insert_sep)).to_string()
 }
 
-fn symbolrefs_to_word(v: &[&Symbol], insert_sep: bool) -> String {
+fn symbolrefs_to_word<T:AppendToVec>(v: &[&T], insert_sep: bool) -> String {
     String::from_utf8_lossy(&symbolrefs_to_vec(v, insert_sep)).to_string()
 }
 
-fn get_symbol_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {
-    let mut symbol_counts: BTreeMap<Symbol, usize> = BTreeMap::new();
+fn get_symbol_counts<T>(input_names: &[Vec<T>]) -> BTreeMap<T, usize>
+where T: Clone + Ord
+{
+    let mut symbol_counts: BTreeMap<T, usize> = BTreeMap::new();
     for name in input_names {
         for w in name {
             *symbol_counts.entry(w.clone()).or_insert(0) += 1;
@@ -111,8 +117,10 @@ fn get_symbol_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<Symbol, usize> {
     symbol_counts
 }
 
-fn get_bigram_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol), usize> {
-    let mut bigram_counts: BTreeMap<(Symbol, Symbol), usize> = BTreeMap::new();
+fn get_bigram_counts<T>(input_names: &[Vec<T>]) -> BTreeMap<(T, T), usize>
+where T: Clone + Ord
+{
+    let mut bigram_counts: BTreeMap<(T, T), usize> = BTreeMap::new();
     for name in input_names {
         for w in name.windows(2) {
             *bigram_counts
@@ -123,8 +131,10 @@ fn get_bigram_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol), 
     bigram_counts
 }
 
-fn get_trigram_counts(input_names: &[Vec<Symbol>]) -> BTreeMap<(Symbol, Symbol, Symbol), usize> {
-    let mut trigram_counts: BTreeMap<(Symbol, Symbol, Symbol), usize> = BTreeMap::new();
+fn get_trigram_counts<T>(input_names: &[Vec<T>]) -> BTreeMap<(T, T, T), usize>
+where T: Clone + Ord
+{
+    let mut trigram_counts: BTreeMap<(T, T, T), usize> = BTreeMap::new();
     for name in input_names {
         for w in name.windows(3) {
             *trigram_counts
@@ -196,9 +206,6 @@ fn setup_logging(verbose: i32) {
         // Apply globally
         .apply()
         .unwrap();
-
-    // and log using log crate macros!
-    info!("helllo, world!");
 }
 
 fn print_model_summary(model: &MarkovModel) {
@@ -221,7 +228,7 @@ fn print_model_summary(model: &MarkovModel) {
 
 fn replace<T>(haystack: &[T], needle: &[T], replacement: &[T]) -> Vec<T>
 where
-    T: Clone + PartialEq + std::fmt::Debug,
+    T: Clone + PartialEq,
 {
     let mut result: Vec<T> = vec![];
     let nh = haystack.len();
@@ -250,6 +257,8 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
     // Hunt for symbols that are only ever used before another
     // These can be reduced to a combined symbol cheaply
 
+    debug!("Looking for rare symbols....");
+
     loop {
         let bigram_counts = get_bigram_counts(&result);
         let mut symbol_to_followers: BTreeMap<Symbol, BTreeSet<Symbol>> = BTreeMap::new();
@@ -265,7 +274,7 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
                 let replacement = Symbol::Compound(symbolrefs_to_vec(&[k, s], false));
-                info!(
+                debug!(
                     "Replacing {:?} with {}",
                     symbolrefs_to_word(&[k, s], true),
                     symbolrefs_to_word(&[&replacement], false),
@@ -281,13 +290,11 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
                 debug!("{} => {:?}", symbolrefs_to_word(&[k], false), sss);
             }
         }
-        info!("XA Pass reduced {} bigrams", reduce_count);
-        debug!("result = {:?}", result);
+        debug!("XA Pass reduced {} bigrams", reduce_count);
         if reduce_count == 0 {
             break;
         }
     }
-    //println!("{:?}",symbol_to_followers );
 
     // Hunt for symbols that are only ever used after another
     // These can be reduced to a combined symbol cheaply
@@ -306,7 +313,7 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
                 let replacement = Symbol::Compound(symbolrefs_to_vec(&[s, k], false));
-                info!(
+                debug!(
                     "Replacing {:?} with {}",
                     symbolrefs_to_word(&[s, k], true),
                     symbolrefs_to_word(&[&replacement], false),
@@ -323,15 +330,19 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
                 debug!("{:?} => {}", sss, symbolrefs_to_word(&[k], false));
             }
         }
-        info!("AX Pass reduced {} bigrams", reduce_count);
+        debug!("AX Pass reduced {} bigrams", reduce_count);
         if reduce_count == 0 {
             break;
         }
     }
+
+    debug!("Done looking for rare symbols....");
     result
 }
 
-fn get_sorted_bigram_counts(input_names: &[Vec<Symbol>]) -> Vec<((Symbol, Symbol), usize)> {
+fn get_sorted_bigram_counts<T>(input_names: &[Vec<T>]) -> Vec<((T, T), usize)> 
+where T: Ord + Clone
+{
     let bigram_counts_map = get_bigram_counts(&input_names);
     let mut bigram_counts: Vec<_> = bigram_counts_map.into_iter().collect();
     bigram_counts.sort_by_key(|e| e.1);
@@ -339,6 +350,8 @@ fn get_sorted_bigram_counts(input_names: &[Vec<Symbol>]) -> Vec<((Symbol, Symbol
     bigram_counts
 }
 
+//TODO: This really should take a "model" and convert it to a new "model"
+//      rather than working on raw data.
 fn convert_common_bigrams_to_symbols(
     input_names: Vec<Vec<Symbol>>,
     bigram_reduce_count: i32,
@@ -376,7 +389,9 @@ fn convert_common_bigrams_to_symbols(
     input_names
 }
 
-fn log_symbol_counts(input_names: &[Vec<Symbol>]) {
+fn log_symbol_counts<T>(input_names: &[Vec<T>])
+where T: Clone + Ord + AppendToVec
+{
     let symbol_counts = get_symbol_counts(&input_names);
     let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
     symbol_counts.sort_by_key(|e| e.1);
@@ -386,7 +401,9 @@ fn log_symbol_counts(input_names: &[Vec<Symbol>]) {
     }
 }
 
-fn log_bigram_counts(input_names: &[Vec<Symbol>]) {
+fn log_bigram_counts<T>(input_names: &[Vec<T>])
+where T: Clone + Ord + AppendToVec
+{
     use std::cmp::min;
 
     let bigram_counts = get_bigram_counts(&input_names);
@@ -403,7 +420,9 @@ fn log_bigram_counts(input_names: &[Vec<Symbol>]) {
     }
 }
 
-fn log_trigram_counts(input_names: &[Vec<Symbol>]) {
+fn log_trigram_counts<T>(input_names: &[Vec<T>])
+where T: Clone + Ord + AppendToVec
+{
     use std::cmp::min;
 
     let trigram_counts = get_trigram_counts(&input_names);

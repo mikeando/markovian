@@ -519,8 +519,6 @@ fn main() {
         .flatten()
         .collect();
 
-    //let input_names_raw = std::fs::read_to_string(opt.name_file).unwrap();
-
     let order = 3;
     let print_sep = verbose >= 1 || opt.print_separators;
 
@@ -530,7 +528,6 @@ fn main() {
         .iter()
         .map(|s| raw_symbolify_word(s))
         .collect();
-    //println!("{:?}", symbolify_word(input_names[0], order));
 
     info!("{:?} raw entries", input_names_raw.len());
     info!("{:?} entries", input_names.len());

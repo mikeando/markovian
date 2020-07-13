@@ -249,8 +249,6 @@ where
     result
 }
 
-//TODO: At the moment this just prints the
-//      cases we could reduce - it doesn't actually reduce them
 fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
     let mut result = input_names;
     use log::Level::Info;

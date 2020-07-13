@@ -172,7 +172,7 @@ struct Opt {
     #[structopt(short, long, default_value = "20")]
     count: u32,
 
-    /// number of names to print
+    /// generate in reverse
     #[structopt(long)]
     reverse: bool,
 }

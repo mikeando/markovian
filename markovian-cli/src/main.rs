@@ -175,6 +175,10 @@ struct Opt {
     /// generate in reverse
     #[structopt(long)]
     reverse: bool,
+
+    /// print symbol similarity information
+    #[structopt(long)]
+    print_symbol_similarity: bool,
 }
 
 fn setup_logging(verbose: i32) {
@@ -436,6 +440,61 @@ where T: Clone + Ord + AppendToVec
     }
 }
 
+fn print_similar_symbols(input_names: &Vec<Vec<Symbol>>) {
+    let symbols = get_symbol_counts(input_names);
+    let symbols: Vec<Symbol> = symbols.keys().cloned().collect();
+    let bigrams = get_bigram_counts(input_names);
+    let reprs: Vec<_> = symbols
+        .iter()
+        .map(|s| repr_for_symbol(s, &symbols, &bigrams))
+        .collect();
+    println!("{} symbols", symbols.len());
+    for (s, rr) in symbols.iter().zip(reprs.iter()) {
+        println!("{:?} => {:?}", s, rr);
+    }
+
+    let mut compared: Vec<(f32, Symbol, Symbol)> = vec![];
+    for (ra, sa) in reprs.iter().zip(symbols.iter()) {
+        print!("{} ", symbols_to_word(&[sa.clone()], false));
+        for (rb, sb) in reprs.iter().zip(symbols.iter()) {
+            let c = dot(ra, rb);
+            print!("{0:.2} ", c);
+            if sa < sb {
+                compared.push((c, sa.clone(), sb.clone()));
+            }
+        }
+        println!()
+    }
+
+    for (ra, sa) in reprs.iter().zip(symbols.iter()) {
+        use std::cmp::Ordering;
+        let (c, _sb) = reprs
+            .iter()
+            .zip(symbols.iter())
+            .filter(|(_rb, sb)| sb != &sa)
+            .map(|(rb, sb)| (dot(ra, rb), sb))
+            .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal))
+            .unwrap();
+
+        if c > 0.2 {
+            let sbs: Vec<_> = reprs
+                .iter()
+                .zip(symbols.iter())
+                .filter(|(_rb, sb)| sb != &sa)
+                .map(|(rb, sb)| (dot(ra, rb), sb))
+                .filter(|(cb, _sb)| *cb > 0.8 * c)
+                .map(|(cb, sb)| (cb, symbols_to_word(&[sb.clone()], false)))
+                .collect();
+            println!("{} {:?}", symbols_to_word(&[sa.clone()], false), sbs);
+        }
+    }
+
+    compared.sort_by_key(|e| (-e.0 * 1000.0) as i64);
+    for x in &compared[0..100] {
+        println! {"{} ~ {} : {}", symbolrefs_to_word(&[&x.1], false), symbolrefs_to_word(&[&x.2], false), x.0}
+    }
+}
+
 fn main() {
     use log::Level::Info;
 
@@ -485,61 +544,10 @@ fn main() {
     //Good to get rid of the rare cases well before we hit any other optimisations.
     let input_names = combine_rare_symbols(input_names);
     let input_names = convert_common_bigrams_to_symbols(input_names, opt.bigram_reduce_count);
-    //let input_names = combine_rare_symbols(input_names);
+    let input_names = combine_rare_symbols(input_names);
 
-    {
-        let symbols = get_symbol_counts(&input_names);
-        let symbols: Vec<Symbol> = symbols.keys().cloned().collect();
-        let bigrams = get_bigram_counts(&input_names);
-        let reprs: Vec<_> = symbols
-            .iter()
-            .map(|s| repr_for_symbol(s, &symbols, &bigrams))
-            .collect();
-        println!("{} symbols", symbols.len());
-        for (s, rr) in symbols.iter().zip(reprs.iter()) {
-            println!("{:?} => {:?}", s, rr);
-        }
-
-        let mut compared: Vec<(f32, Symbol, Symbol)> = vec![];
-        for (ra, sa) in reprs.iter().zip(symbols.iter()) {
-            print!("{} ", symbols_to_word(&[sa.clone()], false));
-            for (rb, sb) in reprs.iter().zip(symbols.iter()) {
-                let c = dot(ra, rb);
-                print!("{0:.2} ", c);
-                if sa < sb {
-                    compared.push((c, sa.clone(), sb.clone()));
-                }
-            }
-            println!()
-        }
-
-        for (ra, sa) in reprs.iter().zip(symbols.iter()) {
-            use std::cmp::Ordering;
-            let (c, _sb) = reprs
-                .iter()
-                .zip(symbols.iter())
-                .filter(|(_rb, sb)| sb != &sa)
-                .map(|(rb, sb)| (dot(ra, rb), sb))
-                .max_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal))
-                .unwrap();
-
-            if c > 0.2 {
-                let sbs: Vec<_> = reprs
-                    .iter()
-                    .zip(symbols.iter())
-                    .filter(|(_rb, sb)| sb != &sa)
-                    .map(|(rb, sb)| (dot(ra, rb), sb))
-                    .filter(|(cb, _sb)| *cb > 0.8 * c)
-                    .map(|(cb, sb)| (cb, symbols_to_word(&[sb.clone()], false)))
-                    .collect();
-                println!("{} {:?}", symbols_to_word(&[sa.clone()], false), sbs);
-            }
-        }
-
-        compared.sort_by_key(|e| (-e.0 * 1000.0) as i64);
-        for x in &compared[0..100] {
-            println! {"{} ~ {} : {}", symbolrefs_to_word(&[&x.1], false), symbolrefs_to_word(&[&x.2], false), x.0}
-        }
+    if opt.print_symbol_similarity {
+        print_similar_symbols(&input_names);
     }
 
     let mut model = MarkovModel::new(order);

@@ -5,11 +5,8 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 use markovian_core::markov_model::MarkovModel;
+use markovian_core::symbol::raw_symbolify_word;
 use markovian_core::symbol::Symbol;
-
-fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
-    s.as_bytes().iter().cloned().map(Symbol::Char).collect()
-}
 
 fn reduce_symbols<T>(v: Vec<T>, key: (&T, &T), value: &T) -> Vec<T>
 where

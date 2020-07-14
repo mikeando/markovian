@@ -9,11 +9,11 @@ use markovian_core::symbol::raw_symbolify_word;
 use markovian_core::symbol::Symbol;
 use markovian_core::vecutils::replace_pair;
 
-trait AppendToVec {
-    fn append_to_vec(&self, v: &mut Vec<u8>);
+trait AppendToVec<VecType> {
+    fn append_to_vec(&self, v: &mut Vec<VecType>);
 }
 
-impl AppendToVec for Symbol {
+impl AppendToVec<u8> for Symbol {
     fn append_to_vec(&self, v: &mut Vec<u8>) {
         match self {
             Symbol::Start => {
@@ -32,18 +32,19 @@ impl AppendToVec for Symbol {
     }
 }
 
-fn symbols_to_vec<T>(v: &[T], insert_sep: bool) -> Vec<u8>
+fn symbols_to_vec<T, VecType>(v: &[T], seperator: Option<VecType>) -> Vec<VecType>
 where
-    T: AppendToVec,
+    T: AppendToVec<VecType>,
+    VecType: Clone,
 {
-    let mut result: Vec<u8> = vec![];
+    let mut result: Vec<VecType> = vec![];
     let mut is_start = true;
     for s in v {
-        if insert_sep {
+        if let Some(sep) = &seperator {
             if is_start {
                 is_start = false
             } else {
-                result.push(b'|')
+                result.push(sep.clone())
             }
         }
         s.append_to_vec(&mut result);
@@ -51,18 +52,19 @@ where
     result
 }
 
-fn symbolrefs_to_vec<T>(v: &[&T], insert_sep: bool) -> Vec<u8>
+fn symbolrefs_to_vec<T, VecType>(v: &[&T], seperator: Option<VecType>) -> Vec<VecType>
 where
-    T: AppendToVec,
+    T: AppendToVec<VecType>,
+    VecType: Clone,
 {
-    let mut result: Vec<u8> = vec![];
+    let mut result: Vec<VecType> = vec![];
     let mut is_start = true;
     for s in v {
-        if insert_sep {
+        if let Some(sep) = &seperator {
             if is_start {
                 is_start = false
             } else {
-                result.push(b'|')
+                result.push(sep.clone())
             }
         }
         s.append_to_vec(&mut result);
@@ -70,12 +72,14 @@ where
     result
 }
 
-fn symbols_to_word<T: AppendToVec>(v: &[T], insert_sep: bool) -> String {
-    String::from_utf8_lossy(&symbols_to_vec(v, insert_sep)).to_string()
+fn symbols_to_word<T: AppendToVec<u8>>(v: &[T], insert_sep: bool) -> String {
+    let seperator = if insert_sep { Some(b'|') } else { None };
+    String::from_utf8_lossy(&symbols_to_vec(v, seperator)).to_string()
 }
 
-fn symbolrefs_to_word<T: AppendToVec>(v: &[&T], insert_sep: bool) -> String {
-    String::from_utf8_lossy(&symbolrefs_to_vec(v, insert_sep)).to_string()
+fn symbolrefs_to_word<T: AppendToVec<u8>>(v: &[&T], insert_sep: bool) -> String {
+    let seperator = if insert_sep { Some(b'|') } else { None };
+    String::from_utf8_lossy(&symbolrefs_to_vec(v, seperator)).to_string()
 }
 
 fn get_symbol_counts<T>(input_names: &[Vec<T>]) -> BTreeMap<T, usize>
@@ -251,7 +255,7 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             if ss.len() == 1 {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
-                let replacement = Symbol::Compound(symbolrefs_to_vec(&[k, s], false));
+                let replacement = Symbol::Compound(symbolrefs_to_vec(&[k, s], None));
                 debug!(
                     "Replacing {:?} with {}",
                     symbolrefs_to_word(&[k, s], true),
@@ -290,7 +294,7 @@ fn combine_rare_symbols(input_names: Vec<Vec<Symbol>>) -> Vec<Vec<Symbol>> {
             if ss.len() == 1 {
                 reduce_count += 1;
                 let s = ss.iter().next().unwrap();
-                let replacement = Symbol::Compound(symbolrefs_to_vec(&[s, k], false));
+                let replacement = Symbol::Compound(symbolrefs_to_vec(&[s, k], None));
                 debug!(
                     "Replacing {:?} with {}",
                     symbolrefs_to_word(&[s, k], true),
@@ -347,7 +351,7 @@ fn convert_common_bigrams_to_symbols(
         info!("Removing bigram {:?}", most_common_bigram);
         let s = Symbol::Compound(symbolrefs_to_vec(
             &[&most_common_bigram.0, &most_common_bigram.1],
-            false,
+            None,
         ));
         input_names = input_names
             .into_iter()
@@ -370,7 +374,7 @@ fn convert_common_bigrams_to_symbols(
 
 fn log_symbol_counts<T>(input_names: &[Vec<T>])
 where
-    T: Clone + Ord + AppendToVec,
+    T: Clone + Ord + AppendToVec<u8>,
 {
     let symbol_counts = get_symbol_counts(&input_names);
     let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
@@ -383,7 +387,7 @@ where
 
 fn log_bigram_counts<T>(input_names: &[Vec<T>])
 where
-    T: Clone + Ord + AppendToVec,
+    T: Clone + Ord + AppendToVec<u8>,
 {
     use std::cmp::min;
 
@@ -403,7 +407,7 @@ where
 
 fn log_trigram_counts<T>(input_names: &[Vec<T>])
 where
-    T: Clone + Ord + AppendToVec,
+    T: Clone + Ord + AppendToVec<u8>,
 {
     use std::cmp::min;
 

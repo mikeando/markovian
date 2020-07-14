@@ -72,9 +72,29 @@ where
     result
 }
 
+trait RenderToString {
+    fn render(self) -> String;
+    fn render_with_separators(self) -> String;
+}
+
+impl<T> RenderToString for &[T]
+where
+    T: AppendToVec<u8>,
+{
+    fn render(self) -> String {
+        String::from_utf8_lossy(&symbols_to_vec(self, None)).to_string()
+    }
+    fn render_with_separators(self) -> String {
+        String::from_utf8_lossy(&symbols_to_vec(self, Some(b'|'))).to_string()
+    }
+}
+
 fn symbols_to_word<T: AppendToVec<u8>>(v: &[T], insert_sep: bool) -> String {
-    let seperator = if insert_sep { Some(b'|') } else { None };
-    String::from_utf8_lossy(&symbols_to_vec(v, seperator)).to_string()
+    if insert_sep {
+        v.render()
+    } else {
+        v.render_with_separators()
+    }
 }
 
 fn symbolrefs_to_word<T: AppendToVec<u8>>(v: &[&T], insert_sep: bool) -> String {

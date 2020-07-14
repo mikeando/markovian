@@ -444,7 +444,7 @@ where
     }
 }
 
-fn print_similar_symbols(input_names: &Vec<Vec<Symbol>>) {
+fn print_similar_symbols(input_names: &[Vec<Symbol>]) {
     let symbols = get_symbol_counts(input_names);
     let symbols: Vec<Symbol> = symbols.keys().cloned().collect();
     let bigrams = get_bigram_counts(input_names);

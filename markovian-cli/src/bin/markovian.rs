@@ -7,33 +7,7 @@ use structopt::StructOpt;
 use markovian_core::markov_model::MarkovModel;
 use markovian_core::symbol::raw_symbolify_word;
 use markovian_core::symbol::Symbol;
-
-fn reduce_symbols<T>(v: Vec<T>, key: (&T, &T), value: &T) -> Vec<T>
-where
-    T: Eq + Clone,
-{
-    let mut result: Vec<T> = vec![];
-    let mut skip = false;
-    for i in 0..v.len() - 1 {
-        if skip {
-            skip = false;
-            continue;
-        }
-        if (&v[i] == key.0) && (&v[i + 1] == key.1) {
-            result.push(value.clone());
-            skip = true;
-        } else {
-            result.push(v[i].clone());
-        }
-    }
-    if !skip {
-        v.last()
-            .iter()
-            .cloned()
-            .for_each(|s: &T| result.push(s.clone()));
-    }
-    result
-}
+use markovian_core::vecutils::replace_pair;
 
 trait AppendToVec {
     fn append_to_vec(&self, v: &mut Vec<u8>);
@@ -377,7 +351,7 @@ fn convert_common_bigrams_to_symbols(
         ));
         input_names = input_names
             .into_iter()
-            .map(|v| reduce_symbols(v, (&most_common_bigram.0, &most_common_bigram.1), &s))
+            .map(|v| replace_pair(v, (&most_common_bigram.0, &most_common_bigram.1), &s))
             .collect();
         if log_enabled!(Debug) {
             let bigram_counts = get_sorted_bigram_counts(&input_names);

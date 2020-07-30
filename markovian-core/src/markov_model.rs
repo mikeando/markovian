@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct MarkovModel {
-    pub contexts: BTreeMap<Vec<Symbol>, WeightedSampler<Symbol>>,
+    pub contexts: BTreeMap<Vec<Symbol>, WeightedSampler<Symbol, usize>>,
     pub order: usize,
 }
 
@@ -31,7 +31,7 @@ impl MarkovModel {
                 self.contexts
                     .entry(w[cl..self.order].to_vec())
                     .or_insert_with(WeightedSampler::new)
-                    .add_symbol(&w[self.order]);
+                    .add_symbol(w[self.order].clone());
             }
         }
     }

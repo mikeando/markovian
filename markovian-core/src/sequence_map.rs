@@ -91,9 +91,4 @@ mod tests {
         let r = seq_node.transform_prefix(&p);
         assert_eq!(Some((&("Hi".to_string()), &p[2..])), r);
     }
-
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }

@@ -303,15 +303,15 @@ where
         let mut result = Vec::<String>::with_capacity(n);
 
         // TODO: Q. How big does N need to be? Currently it is a completely random guess.
-        let N = (5 * n).max(10);
+        let n_gen = (5 * n).max(10);
         let splice_length = self.context_length() + 1;
 
         // We generate N forward from prefix_str
         // Then store up all the "fwd-splice-points" after prefix
         let prefix_sampler = self.build_prefix_sampler(prefix_str);
-        let mut fwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(N);
+        let mut fwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(n_gen);
 
-        for _i in 0..N {
+        for _i in 0..n_gen {
             let chosen_prefix = prefix_sampler.sample_next_symbol(rng);
             let prefix_length = chosen_prefix.len();
             let completed_fwd = self.continue_fwd_prediction(chosen_prefix, rng);
@@ -336,9 +336,9 @@ where
         // We generate N backward from suffix_str
         // Store up all the bwd-splice-points before suffix
         let suffix_sampler = self.build_suffix_sampler(suffix_str);
-        let mut bwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(N);
+        let mut bwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(n_gen);
 
-        for _i in 0..N {
+        for _i in 0..n_gen {
             let chosen_suffix = suffix_sampler.sample_next_symbol(rng);
             let suffix_length = chosen_suffix.len();
             let mut completed_bwd = self.continue_bwd_prediction(chosen_suffix, rng);
@@ -372,7 +372,7 @@ where
 
         // println!("common_splice_point_keys={:?}", common_splice_point_keys.iter().map( |v| self.symbol_table.render(&v) ).collect::<Vec<_>>());
 
-        for _i in 0..N {
+        for _i in 0..n {
             // Pick a splice point key
 
             let mut splice_point_sampler: WeightedSampler<&[SymbolTableEntryId], f32> =
@@ -418,7 +418,7 @@ where
 mod test {
 
     use super::*;
-    use crate::ngram::TrigramCount;
+    use crate::{ngram::TrigramCount, symbol::SymbolTableEntry};
     use std::iter;
 
     fn dumb_u8_symbol_table<T: AsRef<str>>(values: &[T]) -> SymbolTable<u8> {

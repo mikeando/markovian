@@ -444,8 +444,8 @@ mod tests {
 
     #[test]
     pub fn test_render_symbol_table_entry() {
-        assert_eq!(SymbolTableEntry::Start.render(), "^");
-        assert_eq!(SymbolTableEntry::End.render(), "$");
+        assert_eq!(SymbolTableEntry::<u8>::Start.render(), "^");
+        assert_eq!(SymbolTableEntry::<u8>::End.render(), "$");
         assert_eq!(SymbolTableEntry::Single(b'a').render(), "a");
         assert_eq!(SymbolTableEntry::Compound(vec![b'x', b'y']).render(), "xy");
     }

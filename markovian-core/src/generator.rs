@@ -465,10 +465,7 @@ mod test {
 
     fn simple_generator() -> Generator<f32> {
         let values = vec!["hello"];
-        let mut symbol_table = dumb_u8_symbol_table(&values);
-
-        let start_id = symbol_table.start_symbol_id();
-        let end_id = symbol_table.end_symbol_id();
+        let symbol_table = dumb_u8_symbol_table(&values);
 
         let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = values
             .iter()

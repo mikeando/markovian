@@ -1,5 +1,4 @@
 use ::serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone)]
 pub enum Symbol {
@@ -115,49 +114,46 @@ impl SymbolRender for SymbolTableEntry<char> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolTable<T> {
-    values: BTreeMap<SymbolTableEntryId, SymbolTableEntry<T>>,
-    next_key: SymbolTableEntryId,
+    index: Vec<SymbolTableEntry<T>>,
 }
 
 impl<T> SymbolTable<T> {
     pub fn new() -> SymbolTable<T> {
-        SymbolTable {
-            values: BTreeMap::new(),
-            next_key: SymbolTableEntryId(0),
-        }
+        SymbolTable { index: vec![] }
     }
 
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.index.len() + 2
     }
 
     pub fn get_by_id(&self, id: SymbolTableEntryId) -> Option<&SymbolTableEntry<T>> {
-        self.values.get(&id)
+        match id.0 {
+            0 => Some(&SymbolTableEntry::Start),
+            1 => Some(&SymbolTableEntry::End),
+            _ => self.index.get((id.0 - 2) as usize),
+        }
     }
 
-    // Assumes there's only one start symbol...
     pub fn start_symbol_id(&self) -> SymbolTableEntryId {
-        // TODO: should track these some other way.
-        for (k, v) in &self.values {
-            if matches!(v, SymbolTableEntry::Start) {
-                return *k;
-            }
-        }
-        unreachable!("No start symbol found")
+        SymbolTableEntryId(0)
     }
 
     pub fn end_symbol_id(&self) -> SymbolTableEntryId {
-        // TODO: should track these some other way.
-        for (k, v) in &self.values {
-            if matches!(v, SymbolTableEntry::End) {
-                return *k;
-            }
-        }
-        unreachable!("No end symbol found")
+        SymbolTableEntryId(1)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&SymbolTableEntryId, &SymbolTableEntry<T>)> {
-        self.values.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (SymbolTableEntryId, &SymbolTableEntry<T>)> {
+        vec![
+            (SymbolTableEntryId(0), &SymbolTableEntry::Start),
+            (SymbolTableEntryId(1), &SymbolTableEntry::End),
+        ]
+        .into_iter()
+        .chain(
+            self.index
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (SymbolTableEntryId(i as u64), v)),
+        )
     }
 }
 
@@ -166,16 +162,21 @@ where
     T: PartialEq,
 {
     pub fn add(&mut self, value: SymbolTableEntry<T>) -> SymbolTableEntryId {
+        if value == SymbolTableEntry::Start {
+            return self.start_symbol_id();
+        }
+        if value == SymbolTableEntry::End {
+            return self.end_symbol_id();
+        }
+
         //TODO: Keep a map so we dont need to scan for this
-        for (k, v) in &self.values {
+        for (k, v) in self.index.iter().enumerate() {
             if value == *v {
-                return *k;
+                return SymbolTableEntryId((k + 2) as u64);
             }
         }
-        let k = self.next_key;
-        self.values.insert(k, value);
-        self.next_key = SymbolTableEntryId(k.0 + 1);
-        k
+        self.index.push(value);
+        SymbolTableEntryId((self.index.len() + 1) as u64)
     }
 }
 
@@ -211,20 +212,20 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 impl<T> SymbolTable<T> {
+    /// *NOTE* This only returns the first matching decomposition.
+    /// Use `symbolifications` instead if you want all of them.
     pub fn symbolify(&self, v: &[T]) -> Result<Vec<SymbolTableEntryId>>
     where
         T: Eq,
     {
-        // TODO: Do this iteratively to build all matches.
-        // recursively applying a function f: &[T] -> Iterator<(id, &[T])>
-        // until array is empty
         let mut b: &[T] = v;
         let mut result: Vec<SymbolTableEntryId> = vec![];
         'outer: while !b.is_empty() {
-            for (k, s) in &self.values {
+            // We dont need to consider START and END as they can never match
+            for (k, s) in self.index.iter().enumerate() {
                 if s.matches_start(b) {
                     b = &b[s.length()..];
-                    result.push(*k);
+                    result.push(SymbolTableEntryId((k + 2) as u64));
                     continue 'outer;
                 }
             }
@@ -239,9 +240,9 @@ impl<T> SymbolTable<T> {
         T: Eq,
     {
         let mut result = vec![];
-        for (id, s) in &self.values {
+        for (id, s) in self.index.iter().enumerate() {
             if s.matches_start(v) {
-                result.push((*id, &v[s.length()..]));
+                result.push((SymbolTableEntryId((id + 2) as u64), &v[s.length()..]));
             }
         }
         result
@@ -252,14 +253,14 @@ impl<T> SymbolTable<T> {
         T: Eq,
     {
         let mut result = vec![];
-        for (id, s) in &self.values {
+        for (id, s) in self.index.iter().enumerate() {
             if s.matches_start_prefix(v) {
                 let slice: &[T] = if s.length() >= v.len() {
                     &[]
                 } else {
                     &v[s.length()..]
                 };
-                result.push((*id, slice));
+                result.push((SymbolTableEntryId((id + 2) as u64), slice));
             }
         }
         result
@@ -270,14 +271,14 @@ impl<T> SymbolTable<T> {
         T: Eq,
     {
         let mut result = vec![];
-        for (id, s) in &self.values {
+        for (id, s) in self.index.iter().enumerate() {
             if s.matches_end_suffix(v) {
                 let slice: &[T] = if s.length() >= v.len() {
                     &[]
                 } else {
                     &v[0..(v.len() - s.length())]
                 };
-                result.push((*id, slice));
+                result.push((SymbolTableEntryId((id + 2) as u64), slice));
             }
         }
         result
@@ -501,7 +502,7 @@ mod tests {
 
         #[test]
         pub fn default_empty() {
-            let (s, c) = default_symbol_table();
+            let (s, _c) = default_symbol_table();
             // The empty string has one symbolification - the empty one.
             assert_eq!(
                 s.symbolifications_str(""),
@@ -511,7 +512,7 @@ mod tests {
 
         #[test]
         pub fn default_invalid() {
-            let (s, c) = default_symbol_table();
+            let (s, _c) = default_symbol_table();
             // An invalid string has no sumbolifications
             assert_eq!(
                 s.symbolifications_str("Q"),
@@ -539,7 +540,7 @@ mod tests {
 
         #[test]
         pub fn default_multiple_invalid() {
-            let (s, c) = default_symbol_table();
+            let (s, _c) = default_symbol_table();
             assert_eq!(
                 s.symbolifications_str("axyzq"),
                 Vec::<Vec<SymbolTableEntryId>>::new()
@@ -578,7 +579,7 @@ mod tests {
 
         #[test]
         pub fn abc_empty() {
-            let (s, c) = abc_table();
+            let (s, _c) = abc_table();
             assert_eq!(
                 s.symbolifications_prefix_str(""),
                 vec![Vec::<SymbolTableEntryId>::new()]
@@ -587,7 +588,7 @@ mod tests {
 
         #[test]
         pub fn abc_invalid() {
-            let (s, c) = abc_table();
+            let (s, _c) = abc_table();
             assert_eq!(
                 s.symbolifications_prefix_str("qqq"),
                 Vec::<Vec<SymbolTableEntryId>>::new()
@@ -622,7 +623,7 @@ mod tests {
 
         #[test]
         pub fn abc_empty() {
-            let (s, c) = abc_table();
+            let (s, _c) = abc_table();
             assert_eq!(s.possible_symbols_suffix(&[]), vec![]);
         }
 
@@ -641,7 +642,7 @@ mod tests {
 
         #[test]
         pub fn abc_empty() {
-            let (s, c) = abc_table();
+            let (s, _c) = abc_table();
             assert_eq!(s.symbolifications_suffix_str(""), vec![vec![]]);
         }
 

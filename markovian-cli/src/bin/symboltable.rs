@@ -310,7 +310,7 @@ fn command_print(p: &PrintCommand) {
     match decoded {
         SymbolTableFile::Bytes(table) => {
             for e in table.iter() {
-                let (k, v): (&SymbolTableEntryId, &SymbolTableEntry<u8>) = e;
+                let (k, v): (SymbolTableEntryId, &SymbolTableEntry<u8>) = e;
                 println!(
                     "{} => {}",
                     k.0,
@@ -320,7 +320,7 @@ fn command_print(p: &PrintCommand) {
         }
         SymbolTableFile::String(table) => {
             for e in table.iter() {
-                let (k, v): (&SymbolTableEntryId, &SymbolTableEntry<char>) = e;
+                let (k, v): (SymbolTableEntryId, &SymbolTableEntry<char>) = e;
                 println!(
                     "{} => {}",
                     k.0,

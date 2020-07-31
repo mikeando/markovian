@@ -1,6 +1,6 @@
 use ::serde::{Deserialize, Serialize};
 use log::{debug, info};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use structopt::StructOpt;
 
 use markovian_core::symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId};
@@ -21,6 +21,7 @@ enum Command {
     Print(PrintCommand),
     Generate(GenerateCommand),
     Symbolify(SymbolifyCommand),
+    Analyse(AnalyseCommand),
 }
 
 #[derive(Debug, StructOpt)]
@@ -66,6 +67,17 @@ struct SymbolifyCommand {
     use_symbol_ids: bool,
 }
 
+#[derive(Debug, StructOpt)]
+struct AnalyseCommand {
+    /// Input file
+    #[structopt(parse(from_os_str))]
+    symboltable: PathBuf,
+
+    /// Files to analyse
+    #[structopt(parse(from_os_str))]
+    input_file: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum SymbolTableFile {
     Bytes(SymbolTable<u8>),
@@ -84,6 +96,15 @@ impl SymbolTableFile {
         match self {
             SymbolTableFile::Bytes(table) => table.len(),
             SymbolTableFile::String(table) => table.len(),
+        }
+    }
+
+    pub fn symbolifications(&self, s: &str) -> Vec<Vec<SymbolTableEntryId>> {
+        match self {
+            SymbolTableFile::Bytes(table) => table.symbolifications_str(s),
+            SymbolTableFile::String(table) => {
+                table.symbolifications(&s.chars().collect::<Vec<_>>())
+            }
         }
     }
 }
@@ -157,6 +178,7 @@ fn main() {
         Command::Print(p) => command_print(p),
         Command::Generate(g) => command_generate(g),
         Command::Symbolify(s) => command_symbolify(s),
+        Command::Analyse(x) => command_analyse(x),
     }
 }
 
@@ -234,6 +256,22 @@ fn symbol_table_entry_to_string_char(s: &SymbolTableEntry<char>, start: &str, en
         SymbolTableEntry::End => end.to_string(),
         SymbolTableEntry::Single(c) => format!("{}", c),
         SymbolTableEntry::Compound(cs) => cs.iter().collect::<String>(),
+    }
+}
+
+fn symbol_table_id_to_string(
+    symbol_table: &SymbolTableFile,
+    id: SymbolTableEntryId,
+    start: &str,
+    end: &str,
+) -> String {
+    match &symbol_table {
+        SymbolTableFile::Bytes(table) => {
+            symbol_table_entry_to_string_u8(table.get_by_id(id).unwrap(), start, end)
+        }
+        SymbolTableFile::String(table) => {
+            symbol_table_entry_to_string_char(table.get_by_id(id).unwrap(), start, end)
+        }
     }
 }
 
@@ -375,4 +413,51 @@ fn command_generate(g: &GenerateCommand) {
     let encoded: Vec<u8> = bincode::serialize(&file_data).unwrap();
     std::fs::write(&g.output, &encoded).unwrap();
     println!("wrote {} ", g.output.display());
+}
+
+fn command_analyse(x: &AnalyseCommand) {
+    // Load the symboltable
+    let data = std::fs::read(&x.symboltable).unwrap();
+    let symboltable: SymbolTableFile = bincode::deserialize(&data).unwrap();
+
+    // Load the text
+    let input_tokens: Vec<String> = x
+        .input_file
+        .iter()
+        .map(|n| {
+            let v: Vec<_> = std::fs::read_to_string(n)
+                .unwrap()
+                .lines()
+                .map(|n| n.trim().to_string())
+                .filter(|s| s.len() >= 3)
+                .collect();
+            v
+        })
+        .flatten()
+        .collect();
+
+    let input_tokens = input_tokens
+        .iter()
+        .map(|s| symboltable.symbolifications(s))
+        .collect::<Vec<_>>();
+
+    let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
+
+    for x in input_tokens.iter().flatten().flatten() {
+        *symbol_counts.entry(*x).or_insert(0) += 1
+    }
+
+    // TODO: Print number of ways words tokenise.
+
+    println!("Individual symbol counts");
+    //TODO: Sort these by frequency
+    for (k, v) in symbol_counts {
+        println!(
+            "{} {:?}",
+            symbol_table_id_to_string(&symboltable, k, "^", "$"),
+            v
+        );
+    }
+
+    // TODO: print bigrams counts too
 }

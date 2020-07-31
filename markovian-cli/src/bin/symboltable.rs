@@ -204,6 +204,39 @@ fn symbols_to_string_char(
     result
 }
 
+fn symbol_table_entry_to_string_u8(s: &SymbolTableEntry<u8>, start: &str, end: &str) -> String {
+    match s {
+        SymbolTableEntry::Start => start.to_string(),
+        SymbolTableEntry::End => end.to_string(),
+        SymbolTableEntry::Single(b) => {
+            let part: Vec<u8> = std::ascii::escape_default(*b).collect();
+            String::from_utf8(part).unwrap()
+        }
+        SymbolTableEntry::Compound(bs) => {
+            let bs2 = bs.clone();
+            match String::from_utf8(bs2) {
+                Ok(s) => s,
+                Err(_) => {
+                    let part: Vec<u8> = bs
+                        .iter()
+                        .flat_map(|b| std::ascii::escape_default(*b).collect::<Vec<_>>())
+                        .collect();
+                    String::from_utf8(part).unwrap()
+                }
+            }
+        }
+    }
+}
+
+fn symbol_table_entry_to_string_char(s: &SymbolTableEntry<char>, start: &str, end: &str) -> String {
+    match s {
+        SymbolTableEntry::Start => start.to_string(),
+        SymbolTableEntry::End => end.to_string(),
+        SymbolTableEntry::Single(c) => format!("{}", c),
+        SymbolTableEntry::Compound(cs) => cs.iter().collect::<String>(),
+    }
+}
+
 fn command_symbolify(cmd: &SymbolifyCommand) {
     info!("SYMBOLIFY: {:?}", cmd);
     let data = std::fs::read(&cmd.symboltable).unwrap();
@@ -264,39 +297,6 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
                 }
             }
         }
-    }
-}
-
-fn symbol_table_entry_to_string_u8(s: &SymbolTableEntry<u8>, start: &str, end: &str) -> String {
-    match s {
-        SymbolTableEntry::Start => start.to_string(),
-        SymbolTableEntry::End => end.to_string(),
-        SymbolTableEntry::Single(b) => {
-            let part: Vec<u8> = std::ascii::escape_default(*b).collect();
-            String::from_utf8(part).unwrap()
-        }
-        SymbolTableEntry::Compound(bs) => {
-            let bs2 = bs.clone();
-            match String::from_utf8(bs2) {
-                Ok(s) => s,
-                Err(_) => {
-                    let part: Vec<u8> = bs
-                        .iter()
-                        .flat_map(|b| std::ascii::escape_default(*b).collect::<Vec<_>>())
-                        .collect();
-                    String::from_utf8(part).unwrap()
-                }
-            }
-        }
-    }
-}
-
-fn symbol_table_entry_to_string_char(s: &SymbolTableEntry<char>, start: &str, end: &str) -> String {
-    match s {
-        SymbolTableEntry::Start => start.to_string(),
-        SymbolTableEntry::End => end.to_string(),
-        SymbolTableEntry::Single(c) => format!("{}", c),
-        SymbolTableEntry::Compound(cs) => cs.iter().collect::<String>(),
     }
 }
 

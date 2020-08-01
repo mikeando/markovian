@@ -441,13 +441,21 @@ fn command_analyse(x: &AnalyseCommand) {
         .map(|s| symboltable.symbolifications(s))
         .collect::<Vec<_>>();
 
-    let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
+    let mut symbolization_counts: BTreeMap<usize, usize> = BTreeMap::new();
+    for k in &input_tokens {
+        *symbolization_counts.entry(k.len()).or_insert(0) += 1;
+    }
 
+    println!("");
+    for (len, count) in symbolization_counts {
+        println!("{} entries each symbolize exactly {} ways", count, len)
+    }
+    println!("");
+
+    let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
     for x in input_tokens.iter().flatten().flatten() {
         *symbol_counts.entry(*x).or_insert(0) += 1
     }
-
-    // TODO: Print number of ways words tokenise.
 
     println!("Individual symbol counts");
     //TODO: Sort these by frequency

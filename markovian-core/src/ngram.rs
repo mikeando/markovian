@@ -1,13 +1,14 @@
 use crate::num_basic::Field;
 use std::{collections::BTreeMap, iter::FromIterator};
 
-pub struct BigramCount<S> {
-    counts: BTreeMap<(S, S), usize>,
+pub struct BigramCount<S, D> {
+    counts: BTreeMap<(S, S), D>,
 }
 
-impl<S> BigramCount<S>
+impl<S, D> BigramCount<S, D>
 where
     S: Ord + Clone,
+    D: Field,
 {
     pub fn new() -> Self {
         Self {
@@ -15,34 +16,30 @@ where
         }
     }
 
-    pub fn add_sequence(&mut self, values: &[S]) {
+    pub fn add_sequence(&mut self, values: &[S], weight: D) {
         let n = values.len();
         if n <= 1 {
             return;
         }
         for i in 0..(n - 1) {
             let t = (values[i].clone(), values[i + 1].clone());
-            *self.counts.entry(t).or_insert(0) += 1;
+            *self.counts.entry(t).or_insert_with(D::zero) += weight;
         }
     }
 
-    pub fn add_entry(&mut self, value: (S, S)) {
-        *self.counts.entry(value).or_insert(0) += 1;
+    pub fn add_entry(&mut self, value: (S, S), weight: D) {
+        *self.counts.entry(value).or_insert_with(D::zero) += weight;
     }
 
-    pub fn add_entry_with_weight(&mut self, value: (S, S), w: usize) {
-        *self.counts.entry(value).or_insert(0) += w;
-    }
-
-    pub fn count(&self, k: &(S, S)) -> usize {
-        self.counts.get(k).cloned().unwrap_or(0)
+    pub fn count(&self, k: &(S, S)) -> D {
+        self.counts.get(k).cloned().unwrap_or_else(D::zero)
     }
 
     pub fn keys<'a>(&'a self) -> impl Iterator<Item = &(S, S)> + 'a {
         self.counts.keys()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&(S, S), &usize)> + 'a {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&(S, S), &D)> + 'a {
         self.counts.iter()
     }
 }
@@ -99,30 +96,48 @@ where
     }
 }
 
-impl<S> FromIterator<(S, S)> for BigramCount<S>
+impl<S, D> FromIterator<(S, S)> for BigramCount<S, D>
 where
     S: Ord + Clone,
+    D: Field,
 {
     fn from_iter<I: IntoIterator<Item = (S, S)>>(iter: I) -> Self {
         let mut bigrams = BigramCount::new();
 
         for i in iter {
-            bigrams.add_entry(i);
+            bigrams.add_entry(i, D::unit());
         }
 
         bigrams
     }
 }
 
-impl<S> FromIterator<((S, S), usize)> for BigramCount<S>
+impl<S, D> FromIterator<((S, S), D)> for BigramCount<S, D>
 where
     S: Ord + Clone,
+    D: Field,
 {
-    fn from_iter<I: IntoIterator<Item = ((S, S), usize)>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = ((S, S), D)>>(iter: I) -> Self {
         let mut bigrams = BigramCount::new();
 
         for (i, w) in iter {
-            bigrams.add_entry_with_weight(i, w);
+            bigrams.add_entry(i, w);
+        }
+
+        bigrams
+    }
+}
+
+impl<'a, S, D> FromIterator<&'a [S]> for BigramCount<S, D>
+where
+    S: Ord + Clone + 'a,
+    D: Field,
+{
+    fn from_iter<I: IntoIterator<Item = &'a [S]>>(iter: I) -> Self {
+        let mut bigrams = BigramCount::new();
+
+        for i in iter {
+            bigrams.add_sequence(i, D::unit());
         }
 
         bigrams
@@ -290,7 +305,7 @@ mod test {
             // trigram.
             trigrams.add_sequence(&vec!['^', '^', 'a', 'b', '$', '$'], 1);
             trigrams.add_sequence(&vec!['^', '^', 'b', '$', '$'], 1);
-            let bigrams: BigramCount<char> = trigrams
+            let bigrams: BigramCount<char, usize> = trigrams
                 .iter()
                 .filter(|(v, _)| !matches!(**v, ('^', '^', _)))
                 .map(|((a, b, _), count)| ((a.clone(), b.clone()), *count))
@@ -315,9 +330,9 @@ mod test {
 
         #[test]
         pub fn test_add_and_count() {
-            let mut bigrams = BigramCount::<char>::new();
-            bigrams.add_sequence(&vec!['a', 'b', 'c', 'd']);
-            bigrams.add_sequence(&vec!['b', 'c', 'd']);
+            let mut bigrams = BigramCount::<char, usize>::new();
+            bigrams.add_sequence(&vec!['a', 'b', 'c', 'd'], 1);
+            bigrams.add_sequence(&vec!['b', 'c', 'd'], 1);
             assert_eq!(bigrams.count(&('a', 'b')), 1);
             assert_eq!(bigrams.count(&('b', 'c')), 2);
             assert_eq!(bigrams.count(&('c', 'd')), 2);
@@ -326,8 +341,8 @@ mod test {
 
         #[test]
         pub fn test_keys() {
-            let mut bigrams = BigramCount::<char>::new();
-            bigrams.add_sequence(&vec!['a', 'b', 'c', 'd']);
+            let mut bigrams = BigramCount::<char, usize>::new();
+            bigrams.add_sequence(&vec!['a', 'b', 'c', 'd'], 1);
             assert_eq!(
                 bigrams.keys().cloned().collect::<Vec<_>>(),
                 vec![('a', 'b'), ('b', 'c'), ('c', 'd')]
@@ -336,9 +351,9 @@ mod test {
 
         #[test]
         pub fn test_iter() {
-            let mut bigrams = BigramCount::<char>::new();
-            bigrams.add_sequence(&vec!['a', 'b', 'c']);
-            bigrams.add_sequence(&vec!['b', 'c']);
+            let mut bigrams = BigramCount::<char, usize>::new();
+            bigrams.add_sequence(&vec!['a', 'b', 'c'], 1);
+            bigrams.add_sequence(&vec!['b', 'c'], 1);
             assert_eq!(
                 bigrams
                     .iter()

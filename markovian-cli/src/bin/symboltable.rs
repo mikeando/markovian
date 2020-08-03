@@ -3,7 +3,10 @@ use log::{debug, info};
 use std::{collections::BTreeMap, path::PathBuf};
 use structopt::StructOpt;
 
-use markovian_core::symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId};
+use markovian_core::{
+    ngram::BigramCount,
+    symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId},
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "markovian", about = "Markov based name generator.")]
@@ -457,8 +460,11 @@ fn command_analyse(x: &AnalyseCommand) {
         *symbol_counts.entry(*x).or_insert(0) += 1
     }
 
+    let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
+    symbol_counts.sort_by_key(|e| e.1);
+    symbol_counts.reverse();
+
     println!("Individual symbol counts");
-    //TODO: Sort these by frequency
     for (k, v) in symbol_counts {
         println!(
             "{} {:?}",
@@ -467,5 +473,26 @@ fn command_analyse(x: &AnalyseCommand) {
         );
     }
 
-    // TODO: print bigrams counts too
+    println!("--- bigrams ---");
+    let bigram_counts: BigramCount<SymbolTableEntryId, usize> = input_tokens
+        .iter()
+        .flatten()
+        .map(|v| -> &[SymbolTableEntryId] { &v })
+        .collect();
+
+    let mut bigram_counts: Vec<_> = bigram_counts
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    bigram_counts.sort_by_key(|e| e.1);
+    bigram_counts.reverse();
+
+    for (k, c) in bigram_counts.iter() {
+        println!(
+            "{}|{} {}",
+            symbol_table_id_to_string(&symboltable, k.0, "^", "$"),
+            symbol_table_id_to_string(&symboltable, k.1, "^", "$"),
+            c
+        )
+    }
 }

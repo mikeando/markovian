@@ -557,7 +557,7 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
 
     let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
 
-    for x in input_tokens.iter().flat_map(|(k, v)| v).cloned().flatten() {
+    for x in input_tokens.iter().flat_map(|(_k, v)| v).cloned().flatten() {
         *symbol_counts.entry(*x).or_insert(0) += 1
     }
 
@@ -577,7 +577,7 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     println!("--- bigrams ---");
     let bigram_counts: BigramCount<SymbolTableEntryId, usize> = input_tokens
         .iter()
-        .flat_map(|(k, v)| v)
+        .flat_map(|(_k, v)| v)
         .map(|v| -> &[SymbolTableEntryId] { &v })
         .collect();
 

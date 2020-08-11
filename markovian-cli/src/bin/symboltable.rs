@@ -25,6 +25,7 @@ enum Command {
     Generate(GenerateCommand),
     Symbolify(SymbolifyCommand),
     Analyse(AnalyseCommand),
+    Improve(ImproveSymbolTableCommand),
 }
 
 #[derive(Debug, StructOpt)]
@@ -72,6 +73,17 @@ struct SymbolifyCommand {
 
 #[derive(Debug, StructOpt)]
 struct AnalyseCommand {
+    /// Input file
+    #[structopt(parse(from_os_str))]
+    symboltable: PathBuf,
+
+    /// Files to analyse
+    #[structopt(parse(from_os_str))]
+    input_file: Vec<PathBuf>,
+}
+
+#[derive(Debug, StructOpt)]
+struct ImproveSymbolTableCommand {
     /// Input file
     #[structopt(parse(from_os_str))]
     symboltable: PathBuf,
@@ -182,6 +194,7 @@ fn main() {
         Command::Generate(g) => command_generate(g),
         Command::Symbolify(s) => command_symbolify(s),
         Command::Analyse(x) => command_analyse(x),
+        Command::Improve(x) => command_improve_symbol_table(x),
     }
 }
 
@@ -250,6 +263,7 @@ fn symbol_table_entry_to_string_u8(s: &SymbolTableEntry<u8>, start: &str, end: &
                 }
             }
         }
+        SymbolTableEntry::Dead(_) => "✞".to_string(),
     }
 }
 
@@ -259,6 +273,7 @@ fn symbol_table_entry_to_string_char(s: &SymbolTableEntry<char>, start: &str, en
         SymbolTableEntry::End => end.to_string(),
         SymbolTableEntry::Single(c) => format!("{}", c),
         SymbolTableEntry::Compound(cs) => cs.iter().collect::<String>(),
+        SymbolTableEntry::Dead(_) => "✞".to_string(),
     }
 }
 
@@ -495,4 +510,94 @@ fn command_analyse(x: &AnalyseCommand) {
             c
         )
     }
+}
+
+fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
+    // Load the symboltable
+    let data = std::fs::read(&x.symboltable).unwrap();
+    let symboltable: SymbolTableFile = bincode::deserialize(&data).unwrap();
+
+    // Load the text
+    let input_tokens: Vec<String> = x
+        .input_file
+        .iter()
+        .map(|n| {
+            let v: Vec<_> = std::fs::read_to_string(n)
+                .unwrap()
+                .lines()
+                .map(|n| n.trim().to_string())
+                .filter(|s| s.len() >= 3)
+                .collect();
+            v
+        })
+        .flatten()
+        .collect();
+
+    let input_tokens = input_tokens
+        .iter()
+        .map(|s| {
+            let ss = symboltable.symbolifications(&s);
+            (s, ss)
+        })
+        .collect::<Vec<_>>();
+
+    // In this case we
+    //   1. take the shortest form
+    //   2. error if there is no valid form
+    //   3. If more than one form has the same length, we add all with that length.
+    let input_tokens = input_tokens
+        .iter()
+        .map(|(k, v)| {
+            //TODO: Remove the unwrap!
+            let min_len = v.iter().map(|ss| ss.len()).min().unwrap();
+            let short: Vec<_> = v.iter().filter(|ss| ss.len() == min_len).collect();
+            (k, short)
+        })
+        .collect::<Vec<_>>();
+
+    let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
+
+    for x in input_tokens.iter().flat_map(|(k, v)| v).cloned().flatten() {
+        *symbol_counts.entry(*x).or_insert(0) += 1
+    }
+
+    let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
+    symbol_counts.sort_by_key(|e| e.1);
+    symbol_counts.reverse();
+
+    println!("Individual symbol counts");
+    for (k, v) in symbol_counts {
+        println!(
+            "{} {:?}",
+            symbol_table_id_to_string(&symboltable, k, "^", "$"),
+            v
+        );
+    }
+
+    println!("--- bigrams ---");
+    let bigram_counts: BigramCount<SymbolTableEntryId, usize> = input_tokens
+        .iter()
+        .flat_map(|(k, v)| v)
+        .map(|v| -> &[SymbolTableEntryId] { &v })
+        .collect();
+
+    let mut bigram_counts: Vec<_> = bigram_counts
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    bigram_counts.sort_by_key(|e| e.1);
+    bigram_counts.reverse();
+
+    for (k, c) in bigram_counts.iter() {
+        println!(
+            "{}|{} {}",
+            symbol_table_id_to_string(&symboltable, k.0, "^", "$"),
+            symbol_table_id_to_string(&symboltable, k.1, "^", "$"),
+            c
+        )
+    }
+
+    // Take the commonest bigram and remove it
+
+    // Remove any symbols that don't occur in the input.
 }

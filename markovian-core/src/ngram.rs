@@ -144,6 +144,26 @@ where
     }
 }
 
+impl<'a, 'b, S, D> FromIterator<(&'a [S], D)> for BigramCount<S, D>
+where
+    S: Ord + Clone + 'b,
+    D: Field,
+    'b: 'a,
+{
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a [S], D)>,
+    {
+        let mut bigrams = BigramCount::new();
+
+        for (s, w) in iter {
+            bigrams.add_sequence(s, w);
+        }
+
+        bigrams
+    }
+}
+
 impl<S, D> FromIterator<(S, S, S)> for TrigramCount<S, D>
 where
     S: Ord + Clone,
@@ -361,6 +381,12 @@ mod test {
                     .collect::<Vec<_>>(),
                 vec![(('a', 'b'), 1), (('b', 'c'), 2)]
             );
+        }
+
+        #[test]
+        pub fn test_from_slice_and_weight_iter() {
+            let v: Vec<(&[i32], f32)> = vec![(&[1, 2, 3], 0.5), (&[2, 4], 0.5)];
+            let bigrams: BigramCount<i32, f32> = v.into_iter().collect();
         }
     }
 }

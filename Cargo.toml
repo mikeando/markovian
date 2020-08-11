@@ -2,7 +2,7 @@
 
 members = [
     "markovian-core/",
-    "markovian-py/",
+    # "markovian-py/",
     "markovian-cli/",
 ]
 

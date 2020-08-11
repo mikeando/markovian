@@ -22,6 +22,7 @@ pub enum SymbolTableEntry<T> {
     End,
     Single(T),
     Compound(Vec<T>),
+    Dead(Option<usize>), // Index of next dead entry
 }
 
 impl<T> SymbolTableEntry<T>
@@ -97,6 +98,7 @@ impl SymbolRender for SymbolTableEntry<u8> {
             SymbolTableEntry::End => "$".to_string(),
             SymbolTableEntry::Single(v) => String::from_utf8_lossy(&[*v]).to_string(),
             SymbolTableEntry::Compound(v) => String::from_utf8_lossy(&v).to_string(),
+            SymbolTableEntry::Dead(_) => "✞".to_string(),
         }
     }
 }
@@ -108,6 +110,7 @@ impl SymbolRender for SymbolTableEntry<char> {
             SymbolTableEntry::End => "$".to_string(),
             SymbolTableEntry::Single(v) => format!("{}", v),
             SymbolTableEntry::Compound(v) => v.iter().collect(),
+            SymbolTableEntry::Dead(_) => "✞".to_string(),
         }
     }
 }
@@ -115,13 +118,20 @@ impl SymbolRender for SymbolTableEntry<char> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolTable<T> {
     index: Vec<SymbolTableEntry<T>>,
+    dead_chain_head: Option<usize>,
+    n_dead: usize,
 }
 
 impl<T> SymbolTable<T> {
     pub fn new() -> SymbolTable<T> {
-        SymbolTable { index: vec![] }
+        SymbolTable {
+            index: vec![],
+            dead_chain_head: None,
+            n_dead: 0,
+        }
     }
 
+    // Includes dead entries.
     pub fn len(&self) -> usize {
         self.index.len() + 2
     }
@@ -142,6 +152,7 @@ impl<T> SymbolTable<T> {
         SymbolTableEntryId(1)
     }
 
+    // Includes dead entries
     pub fn iter(&self) -> impl Iterator<Item = (SymbolTableEntryId, &SymbolTableEntry<T>)> {
         vec![
             (SymbolTableEntryId(0), &SymbolTableEntry::Start),
@@ -169,14 +180,58 @@ where
             return self.end_symbol_id();
         }
 
-        //TODO: Keep a map so we dont need to scan for this
-        for (k, v) in self.index.iter().enumerate() {
-            if value == *v {
-                return SymbolTableEntryId((k + 2) as u64);
+        if let Some(id) = self.find(&value) {
+            return id;
+        }
+
+        match self.dead_chain_head {
+            Some(last_dead) => {
+                let e = &self.index[last_dead];
+                match e {
+                    SymbolTableEntry::Dead(next_dead) => {
+                        self.dead_chain_head = *next_dead;
+                        self.n_dead -= 1;
+                        self.index[last_dead] = value;
+                        SymbolTableEntryId((last_dead + 2) as u64)
+                    }
+                    _ => panic!("SymbolTable.dead_chain_head pointing to a live entry"),
+                }
+            }
+            None => {
+                self.index.push(value);
+                SymbolTableEntryId((self.index.len() + 1) as u64)
             }
         }
-        self.index.push(value);
-        SymbolTableEntryId((self.index.len() + 1) as u64)
+    }
+
+    pub fn find(&self, value: &SymbolTableEntry<T>) -> Option<SymbolTableEntryId> {
+        //TODO: Keep a map so we dont need to scan for this
+        for (k, v) in self.index.iter().enumerate() {
+            if value == v {
+                return Some(SymbolTableEntryId((k + 2) as u64));
+            }
+        }
+        None
+    }
+
+    // We don't actually remove the entry, just mark it as dead, so that we dont invalidate
+    // existing ids.
+    pub fn remove(&mut self, id: SymbolTableEntryId) {
+        //TODO: Handle error cases - like trying to remove a symbol that is out-of-bounds
+        // and removing the start or end symbols.
+        assert!(id.0 >= 2);
+
+        self.index[(id.0 - 2) as usize] = SymbolTableEntry::Dead(self.dead_chain_head);
+        self.dead_chain_head = Some((id.0 - 2) as usize);
+        self.n_dead += 1;
+    }
+
+    // Remove all the dead entries. Potentially invalidating any exitsing ids.
+    pub fn compact(&mut self) {
+        self.dead_chain_head = None;
+        self.n_dead = 0;
+        self.index
+            .retain(|e| !matches!(e, SymbolTableEntry::Dead(_)));
     }
 }
 

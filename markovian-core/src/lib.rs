@@ -1,3 +1,4 @@
+pub mod analyser;
 pub mod generator;
 pub mod markov_model;
 pub mod ngram;

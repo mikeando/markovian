@@ -150,7 +150,7 @@ mod tests {
         u.add(SymbolTableEntry::Compound("bb".chars().collect()));
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = CharTokenizer;
-        let a: Analyser<char, CharTokenizer> = Analyser::new(u, tokenizer, wordlist);
+        let _a: Analyser<char, CharTokenizer> = Analyser::new(u, tokenizer, wordlist);
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
         let id_aa = u.add(SymbolTableEntry::Compound("aa".chars().collect()));
         let wordlist = vec!["aaa".to_string()];
         let tokenizer = CharTokenizer;
-        let mut a = Analyser::new(u, tokenizer, wordlist);
+        let a = Analyser::new(u, tokenizer, wordlist);
 
         assert_eq!(
             a.get_symbolisations(),
@@ -270,7 +270,7 @@ mod tests {
         let v: Vec<(SymbolTableEntryId, f32)> = a
             .get_symbol_counts()
             .into_iter()
-            .filter(|(k, v)| *v != 0.0)
+            .filter(|(_k, v)| *v != 0.0)
             .collect();
         assert_eq!(v, vec![(id_a, 1.0), (id_aa, 1.0)]);
 

@@ -386,7 +386,7 @@ mod test {
         #[test]
         pub fn test_from_slice_and_weight_iter() {
             let v: Vec<(&[i32], f32)> = vec![(&[1, 2, 3], 0.5), (&[2, 4], 0.5)];
-            let bigrams: BigramCount<i32, f32> = v.into_iter().collect();
+            let _bigrams: BigramCount<i32, f32> = v.into_iter().collect();
         }
     }
 }

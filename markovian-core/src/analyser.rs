@@ -7,7 +7,7 @@ use crate::{
 // allocating up a complete buffer, but the lifetimes on the required associated types
 // are tricky.
 pub trait WordToToken<T> {
-    fn convert<'a>(&self, s:&'a str) -> Vec<T>;
+    fn convert<'a>(&self, s: &'a str) -> Vec<T>;
 }
 
 pub struct Analyser<T, Tokenizer> {
@@ -29,13 +29,17 @@ where
     }
 }
 
-impl <T, Tokenizer> Analyser<T, Tokenizer>
+impl<T, Tokenizer> Analyser<T, Tokenizer>
 where
     Tokenizer: WordToToken<T>,
-    T: Eq
+    T: Eq,
 {
     //TODO: Should this take ownership of the list of strings too?
-    pub fn new(symbol_table: SymbolTable<T>, tokenizer:Tokenizer, word_list: Vec<String>) -> Analyser<T, Tokenizer> {
+    pub fn new(
+        symbol_table: SymbolTable<T>,
+        tokenizer: Tokenizer,
+        word_list: Vec<String>,
+    ) -> Analyser<T, Tokenizer> {
         Analyser {
             symbol_table,
             tokenizer,
@@ -121,7 +125,7 @@ where
 struct CharTokenizer;
 
 impl WordToToken<char> for CharTokenizer {
-    fn convert<'a>(&self, s:&'a str) -> Vec<char> {
+    fn convert<'a>(&self, s: &'a str) -> Vec<char> {
         s.chars().collect()
     }
 }
@@ -129,7 +133,7 @@ impl WordToToken<char> for CharTokenizer {
 struct ByteTokenizer;
 
 impl WordToToken<u8> for ByteTokenizer {
-    fn convert<'a>(&self, s:&'a str) -> Vec<u8> {
+    fn convert<'a>(&self, s: &'a str) -> Vec<u8> {
         s.as_bytes().to_vec()
     }
 }
@@ -146,7 +150,7 @@ mod tests {
         u.add(SymbolTableEntry::Compound("bb".chars().collect()));
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = CharTokenizer;
-        let a: Analyser<char,CharTokenizer> = Analyser::new(u, tokenizer, wordlist);
+        let a: Analyser<char, CharTokenizer> = Analyser::new(u, tokenizer, wordlist);
     }
 
     #[test]
@@ -291,9 +295,12 @@ mod tests {
         let id_bb = u.add(SymbolTableEntry::Compound(b"bb".to_vec()));
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = ByteTokenizer;
-        let a: Analyser<u8,ByteTokenizer> = Analyser::new(u, tokenizer, wordlist);
+        let a: Analyser<u8, ByteTokenizer> = Analyser::new(u, tokenizer, wordlist);
 
-        assert_eq!(a.get_symbol_counts(), vec![(id_start,0.0), (id_end,0.0), (id_a, 2.0), (id_bb,1.0)]);
+        assert_eq!(
+            a.get_symbol_counts(),
+            vec![(id_start, 0.0), (id_end, 0.0), (id_a, 2.0), (id_bb, 1.0)]
+        );
 
         let bigrams: BigramCount<SymbolTableEntryId, f32> = a.get_bigram_counts();
         assert_eq!(bigrams.count(&(id_start, id_a)), 1.0);

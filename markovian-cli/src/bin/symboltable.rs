@@ -5,6 +5,10 @@ use structopt::StructOpt;
 
 use markovian_core::{
     ngram::BigramCount,
+    renderer::{
+        renderer_for_char_with_separator, renderer_for_u8_with_separator, RenderChar, RenderU8,
+        Renderer, RendererId, SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8,
+    },
     symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId},
 };
 
@@ -198,98 +202,14 @@ fn main() {
     }
 }
 
-fn symbols_to_string_u8(
-    symbols: &[SymbolTableEntryId],
-    table: &SymbolTable<u8>,
-    separator: &str,
-) -> String {
-    use std::fmt::Write;
-
-    let mut result: String = String::new();
-    let mut is_start = true;
-    for s in symbols {
-        let symbol = table.get_by_id(*s).unwrap();
-        let symbol_str = symbol_table_entry_to_string_u8(symbol, "^", "$");
-        if is_start {
-            is_start = false;
-            write!(&mut result, "{}", symbol_str).unwrap();
-        } else {
-            write!(&mut result, "{}{}", separator, symbol_str).unwrap();
-        }
-    }
-    result
-}
-
-fn symbols_to_string_char(
-    symbols: &[SymbolTableEntryId],
-    table: &SymbolTable<char>,
-    separator: &str,
-) -> String {
-    use std::fmt::Write;
-
-    let mut result: String = String::new();
-    let mut is_start = true;
-    for s in symbols {
-        let symbol = table.get_by_id(*s).unwrap();
-        let symbol_str = symbol_table_entry_to_string_char(symbol, "^", "$");
-        if is_start {
-            is_start = false;
-            write!(&mut result, "{}", symbol_str).unwrap();
-        } else {
-            write!(&mut result, "{}{}", separator, symbol_str).unwrap();
-        }
-    }
-    result
-}
-
-fn symbol_table_entry_to_string_u8(s: &SymbolTableEntry<u8>, start: &str, end: &str) -> String {
-    match s {
-        SymbolTableEntry::Start => start.to_string(),
-        SymbolTableEntry::End => end.to_string(),
-        SymbolTableEntry::Single(b) => {
-            let part: Vec<u8> = std::ascii::escape_default(*b).collect();
-            String::from_utf8(part).unwrap()
-        }
-        SymbolTableEntry::Compound(bs) => {
-            let bs2 = bs.clone();
-            match String::from_utf8(bs2) {
-                Ok(s) => s,
-                Err(_) => {
-                    let part: Vec<u8> = bs
-                        .iter()
-                        .flat_map(|b| std::ascii::escape_default(*b).collect::<Vec<_>>())
-                        .collect();
-                    String::from_utf8(part).unwrap()
-                }
-            }
-        }
-        SymbolTableEntry::Dead(_) => "✞".to_string(),
-    }
-}
-
-fn symbol_table_entry_to_string_char(s: &SymbolTableEntry<char>, start: &str, end: &str) -> String {
-    match s {
-        SymbolTableEntry::Start => start.to_string(),
-        SymbolTableEntry::End => end.to_string(),
-        SymbolTableEntry::Single(c) => format!("{}", c),
-        SymbolTableEntry::Compound(cs) => cs.iter().collect::<String>(),
-        SymbolTableEntry::Dead(_) => "✞".to_string(),
-    }
-}
-
-fn symbol_table_id_to_string(
-    symbol_table: &SymbolTableFile,
-    id: SymbolTableEntryId,
-    start: &str,
-    end: &str,
-) -> String {
+fn get_symbol_renderer<'a>(
+    symbol_table: &'a SymbolTableFile,
+    start: &'a str,
+    end: &'a str,
+) -> Box<dyn SymbolIdRenderer + 'a> {
     match &symbol_table {
-        SymbolTableFile::Bytes(table) => {
-            symbol_table_entry_to_string_u8(table.get_by_id(id).unwrap(), start, end)
-        }
-        SymbolTableFile::String(table) => {
-            symbol_table_entry_to_string_char(table.get_by_id(id).unwrap(), start, end)
-        }
+        SymbolTableFile::Bytes(table) => Box::new(SymbolIdRendererU8 { table, start, end }),
+        SymbolTableFile::String(table) => Box::new(SymbolIdRendererChar { table, start, end }),
     }
 }
 
@@ -300,59 +220,41 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
     info!("encoding: {}", symboltable.encoding().encoding_name());
     info!("n_symbols: {}", symboltable.len());
 
-    match symboltable {
-        SymbolTableFile::Bytes(table) => {
-            for s in &cmd.input {
-                let reprs = table.symbolifications(s.as_bytes());
-                if cmd.use_symbol_ids {
-                    let result = reprs
-                        .iter()
-                        .map(|ids| ids.iter().map(|id| id.0).collect::<Vec<_>>())
-                        .collect::<Vec<_>>();
-                    println!("{} => {:?}", s, result);
-                } else {
-                    match &cmd.symbol_separator {
-                        None => {
-                            let result = reprs.iter().map(|v| table.render(&v)).collect::<Vec<_>>();
-                            println!("{} => {:?}", s, result);
-                        }
-                        Some(sep) => {
-                            let result = reprs
-                                .iter()
-                                .map(|ids| symbols_to_string_u8(ids, &table, &sep))
-                                .collect::<Vec<_>>();
-                            println!("{} => {:?}", s, result);
-                        }
-                    }
-                }
+    let renderer: Box<dyn Renderer> = if cmd.use_symbol_ids {
+        Box::new(RendererId {})
+    } else {
+        match (&symboltable, &cmd.symbol_separator) {
+            (SymbolTableFile::Bytes(table), None) => Box::new(RenderU8 {
+                table: &table,
+                start: b"^",
+                end: b"$",
+            }),
+            (SymbolTableFile::Bytes(table), Some(sep)) => {
+                Box::new(renderer_for_u8_with_separator(&table, &sep))
+            }
+            (SymbolTableFile::String(table), None) => Box::new(RenderChar {
+                table: &table,
+                start: "^",
+                end: "$",
+            }),
+            (SymbolTableFile::String(table), Some(sep)) => {
+                Box::new(renderer_for_char_with_separator(&table, &sep))
             }
         }
-        SymbolTableFile::String(table) => {
-            for s in &cmd.input {
-                let reprs = table.symbolifications(&s.chars().collect::<Vec<_>>());
-                if cmd.use_symbol_ids {
-                    let result = reprs
-                        .iter()
-                        .map(|ids| ids.iter().map(|id| id.0).collect::<Vec<_>>())
-                        .collect::<Vec<_>>();
-                    println!("{} => {:?}", s, result);
-                } else {
-                    match &cmd.symbol_separator {
-                        None => {
-                            let result = reprs.iter().map(|v| table.render(&v)).collect::<Vec<_>>();
-                            println!("{} => {:?}", s, result);
-                        }
-                        Some(sep) => {
-                            let result = reprs
-                                .iter()
-                                .map(|ids| symbols_to_string_char(ids, &table, &sep))
-                                .collect::<Vec<_>>();
-                            println!("{} => {:?}", s, result);
-                        }
-                    }
-                }
+    };
+
+    for s in &cmd.input {
+        let reprs = match &symboltable {
+            SymbolTableFile::Bytes(table) => table.symbolifications(s.as_bytes()),
+            SymbolTableFile::String(table) => {
+                table.symbolifications(&s.chars().collect::<Vec<_>>())
             }
-        }
+        };
+        let result = reprs
+            .iter()
+            .map(|ids| renderer.render(&ids))
+            .collect::<Vec<_>>();
+        println!("{} => {:?}", s, result);
     }
 }
 
@@ -365,23 +267,26 @@ fn command_print(p: &PrintCommand) {
 
     match decoded {
         SymbolTableFile::Bytes(table) => {
+            let symbol_renderer = SymbolIdRendererU8 {
+                table: &table,
+                start: "START",
+                end: "END",
+            };
             for e in table.iter() {
-                let (k, v): (SymbolTableEntryId, &SymbolTableEntry<u8>) = e;
-                println!(
-                    "{} => {}",
-                    k.0,
-                    symbol_table_entry_to_string_u8(v, "START", "END")
-                );
+                let (k, _v): (SymbolTableEntryId, &SymbolTableEntry<u8>) = e;
+                println!("{} => {}", k.0, symbol_renderer.render(k));
             }
         }
         SymbolTableFile::String(table) => {
+            let symbol_renderer = SymbolIdRendererChar {
+                table: &table,
+                start: "START",
+                end: "END",
+            };
+
             for e in table.iter() {
-                let (k, v): (SymbolTableEntryId, &SymbolTableEntry<char>) = e;
-                println!(
-                    "{} => {}",
-                    k.0,
-                    symbol_table_entry_to_string_char(v, "START", "END")
-                );
+                let (k, _v): (SymbolTableEntryId, &SymbolTableEntry<char>) = e;
+                println!("{} => {}", k.0, symbol_renderer.render(k));
             }
         }
     }
@@ -479,13 +384,11 @@ fn command_analyse(x: &AnalyseCommand) {
     symbol_counts.sort_by_key(|e| e.1);
     symbol_counts.reverse();
 
+    let symbol_renderer = get_symbol_renderer(&symboltable, "^", "$");
+
     println!("Individual symbol counts");
     for (k, v) in symbol_counts {
-        println!(
-            "{} {:?}",
-            symbol_table_id_to_string(&symboltable, k, "^", "$"),
-            v
-        );
+        println!("{} {:?}", symbol_renderer.render(k), v);
     }
 
     println!("--- bigrams ---");
@@ -505,8 +408,8 @@ fn command_analyse(x: &AnalyseCommand) {
     for (k, c) in bigram_counts.iter() {
         println!(
             "{}|{} {}",
-            symbol_table_id_to_string(&symboltable, k.0, "^", "$"),
-            symbol_table_id_to_string(&symboltable, k.1, "^", "$"),
+            symbol_renderer.render(k.0),
+            symbol_renderer.render(k.1),
             c
         )
     }
@@ -565,13 +468,11 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     symbol_counts.sort_by_key(|e| e.1);
     symbol_counts.reverse();
 
+    let symbol_renderer = get_symbol_renderer(&symboltable, "^", "$");
+
     println!("Individual symbol counts");
     for (k, v) in symbol_counts {
-        println!(
-            "{} {:?}",
-            symbol_table_id_to_string(&symboltable, k, "^", "$"),
-            v
-        );
+        println!("{} {:?}", symbol_renderer.render(k), v);
     }
 
     println!("--- bigrams ---");
@@ -591,8 +492,8 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     for (k, c) in bigram_counts.iter() {
         println!(
             "{}|{} {}",
-            symbol_table_id_to_string(&symboltable, k.0, "^", "$"),
-            symbol_table_id_to_string(&symboltable, k.1, "^", "$"),
+            symbol_renderer.render(k.0),
+            symbol_renderer.render(k.1),
             c
         )
     }

@@ -1,6 +1,7 @@
 use crate::{
     ngram::TrigramCount,
     num_basic::Field,
+    renderer::Renderer,
     symbol::{SymbolTable, SymbolTableEntryId},
     weighted_sampler::WeightedSampler,
 };
@@ -229,13 +230,13 @@ where
         self.continue_prediction(&self.rev_transition_table, start_id, v, rng)
     }
 
-    pub fn generate<R: Rng>(&self, n: usize, rng: &mut R) -> Vec<String> {
+    pub fn generate<R: Rng>(&self, n: usize, rng: &mut R, renderer: &impl Renderer) -> Vec<String> {
         // Generate an initial vector.
         let mut result = Vec::<String>::with_capacity(n);
         for _i in 0..n {
             let v = self.generate_initial_vector();
             let v = self.continue_fwd_prediction(v, rng);
-            result.push(self.symbol_table.render(self.body(&v)))
+            result.push(renderer.render(self.body(&v)))
         }
         result
     }
@@ -245,6 +246,7 @@ where
         prefix_str: &str,
         n: usize,
         rng: &mut R,
+        renderer: &impl Renderer,
     ) -> Vec<String> {
         let mut result = Vec::<String>::with_capacity(n);
 
@@ -258,7 +260,7 @@ where
 
             // Generate using that symbolified prefix
             let v = self.continue_fwd_prediction(chosen_prefix, rng);
-            result.push(self.symbol_table.render(self.body(&v)))
+            result.push(renderer.render(self.body(&v)))
         }
         result
     }
@@ -268,6 +270,7 @@ where
         suffix_str: &str,
         n: usize,
         rng: &mut R,
+        renderer: &impl Renderer,
     ) -> Vec<String> {
         let mut result = Vec::<String>::with_capacity(n);
 
@@ -286,7 +289,7 @@ where
             // Need to reverse v before we render it.
             let mut v = self.body(&v).to_vec();
             v.reverse();
-            result.push(self.symbol_table.render(&v))
+            result.push(renderer.render(&v))
         }
 
         result
@@ -298,6 +301,7 @@ where
         suffix_str: &str,
         n: usize,
         rng: &mut R,
+        renderer: &impl Renderer,
     ) -> Vec<String> {
         // TOOD: Should we add weights to any of the samplers to get a better result?
         let mut result = Vec::<String>::with_capacity(n);
@@ -406,7 +410,7 @@ where
             // Then we render the answer.
             // println!("whole={}", self.symbol_table.render(&whole) );
 
-            let text = self.symbol_table.render(self.body(&whole));
+            let text = renderer.render(self.body(&whole));
             result.push(text);
         }
 
@@ -418,7 +422,7 @@ where
 mod test {
 
     use super::*;
-    use crate::{ngram::TrigramCount, symbol::SymbolTableEntry};
+    use crate::{ngram::TrigramCount, renderer::RenderU8, symbol::SymbolTableEntry};
     use std::iter;
 
     fn dumb_u8_symbol_table<T: AsRef<str>>(values: &[T]) -> SymbolTable<u8> {
@@ -563,7 +567,12 @@ mod test {
     pub fn generate_simple() {
         let mut rng = rand::thread_rng();
         let g = simple_generator();
-        let m: String = g.generate(1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String = g.generate(1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -571,7 +580,12 @@ mod test {
     pub fn generate_simple_2() {
         let mut rng = rand::thread_rng();
         let g = simple_generator_2();
-        let m: String = g.generate(1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String = g.generate(1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "word");
     }
 
@@ -579,7 +593,12 @@ mod test {
     pub fn generate_prefix() {
         let mut rng = rand::thread_rng();
         let g = simple_generator();
-        let m: String = g.generate_with_prefix("hel", 1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String = g.generate_with_prefix("hel", 1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -587,7 +606,12 @@ mod test {
     pub fn generate_prefix_empty() {
         let mut rng = rand::thread_rng();
         let g = simple_generator();
-        let m: String = g.generate_with_prefix("", 1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String = g.generate_with_prefix("", 1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -595,7 +619,12 @@ mod test {
     pub fn generate_suffix() {
         let mut rng = rand::thread_rng();
         let g = simple_generator();
-        let m: String = g.generate_with_suffix("llo", 1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String = g.generate_with_suffix("llo", 1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -603,7 +632,12 @@ mod test {
     pub fn generate_suffix_empty() {
         let mut rng = rand::thread_rng();
         let g = simple_generator();
-        let m: String = g.generate_with_suffix("", 1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String = g.generate_with_suffix("", 1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -611,7 +645,13 @@ mod test {
     pub fn generate_with_prefix_and_suffix() {
         let mut rng = rand::thread_rng();
         let g = simple_generator();
-        let m: String = g.generate_with_prefix_and_suffix("h", "o", 1, &mut rng)[0].clone();
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m: String =
+            g.generate_with_prefix_and_suffix("h", "o", 1, &mut rng, &renderer)[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -621,7 +661,12 @@ mod test {
         let g = larger_generator();
         let prefix = "h";
         let suffix = "y";
-        let m = g.generate_with_prefix_and_suffix(prefix, suffix, 10, &mut rng);
+        let renderer = RenderU8 {
+            table: &g.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+        let m = g.generate_with_prefix_and_suffix(prefix, suffix, 10, &mut rng, &renderer);
 
         for v in m {
             assert!(

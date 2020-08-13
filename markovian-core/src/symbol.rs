@@ -87,34 +87,6 @@ impl<T> SymbolTableEntry<T> {
     }
 }
 
-pub trait SymbolRender {
-    fn render(&self) -> String;
-}
-
-impl SymbolRender for SymbolTableEntry<u8> {
-    fn render(&self) -> String {
-        match self {
-            SymbolTableEntry::Start => "^".to_string(),
-            SymbolTableEntry::End => "$".to_string(),
-            SymbolTableEntry::Single(v) => String::from_utf8_lossy(&[*v]).to_string(),
-            SymbolTableEntry::Compound(v) => String::from_utf8_lossy(&v).to_string(),
-            SymbolTableEntry::Dead(_) => "✞".to_string(),
-        }
-    }
-}
-
-impl SymbolRender for SymbolTableEntry<char> {
-    fn render(&self) -> String {
-        match self {
-            SymbolTableEntry::Start => "^".to_string(),
-            SymbolTableEntry::End => "$".to_string(),
-            SymbolTableEntry::Single(v) => format!("{}", v),
-            SymbolTableEntry::Compound(v) => v.iter().collect(),
-            SymbolTableEntry::Dead(_) => "✞".to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolTable<T> {
     index: Vec<SymbolTableEntry<T>>,
@@ -238,24 +210,6 @@ where
 impl<T> Default for SymbolTable<T> {
     fn default() -> Self {
         SymbolTable::new()
-    }
-}
-
-impl<T> SymbolTable<T>
-where
-    SymbolTableEntry<T>: SymbolRender,
-{
-    pub fn render(&self, ids: &[SymbolTableEntryId]) -> String {
-        let mut result: String = String::new();
-        for id in ids {
-            let s = self.get_by_id(*id);
-            let ss = match s {
-                Some(v) => v.render(),
-                None => "?".to_string(),
-            };
-            result = format!("{}{}", result, ss);
-        }
-        result
     }
 }
 
@@ -496,40 +450,6 @@ mod tests {
 
         let e: Option<&SymbolTableEntry<u8>> = s.get_by_id(c.xyz);
         assert_eq!(e, Some(&SymbolTableEntry::Compound(vec![b'x', b'y', b'z'])));
-    }
-
-    #[test]
-    pub fn test_render_symbol_table_entry() {
-        assert_eq!(SymbolTableEntry::<u8>::Start.render(), "^");
-        assert_eq!(SymbolTableEntry::<u8>::End.render(), "$");
-        assert_eq!(SymbolTableEntry::Single(b'a').render(), "a");
-        assert_eq!(SymbolTableEntry::Compound(vec![b'x', b'y']).render(), "xy");
-    }
-
-    #[test]
-    pub fn check_symbol_table_render() {
-        let (s, c) = default_symbol_table();
-        let u: String = s.render(&vec![]);
-        assert_eq!(u, "");
-
-        //TODO: Should this be an error?
-        let u: String = s.render(&vec![SymbolTableEntryId(123)]);
-        assert_eq!(u, "?");
-
-        let u: String = s.render(&vec![c.start]);
-        assert_eq!(u, "^");
-
-        let u: String = s.render(&vec![c.end]);
-        assert_eq!(u, "$");
-
-        let u: String = s.render(&vec![c.a]);
-        assert_eq!(u, "a");
-
-        let u: String = s.render(&vec![c.xyz]);
-        assert_eq!(u, "xyz");
-
-        let u: String = s.render(&vec![c.start, c.a, c.xyz, c.end]);
-        assert_eq!(u, "^axyz$");
     }
 
     #[test]

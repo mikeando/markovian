@@ -236,7 +236,7 @@ where
         for _i in 0..n {
             let v = self.generate_initial_vector();
             let v = self.continue_fwd_prediction(v, rng);
-            result.push(renderer.render(self.body(&v)))
+            result.push(renderer.render(self.body(&v)).unwrap())
         }
         result
     }
@@ -260,7 +260,7 @@ where
 
             // Generate using that symbolified prefix
             let v = self.continue_fwd_prediction(chosen_prefix, rng);
-            result.push(renderer.render(self.body(&v)))
+            result.push(renderer.render(self.body(&v)).unwrap())
         }
         result
     }
@@ -289,7 +289,7 @@ where
             // Need to reverse v before we render it.
             let mut v = self.body(&v).to_vec();
             v.reverse();
-            result.push(renderer.render(&v))
+            result.push(renderer.render(&v).unwrap())
         }
 
         result
@@ -410,7 +410,7 @@ where
             // Then we render the answer.
             // println!("whole={}", self.symbol_table.render(&whole) );
 
-            let text = renderer.render(self.body(&whole));
+            let text = renderer.render(self.body(&whole)).unwrap();
             result.push(text);
         }
 

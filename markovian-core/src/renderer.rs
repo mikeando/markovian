@@ -1,7 +1,25 @@
 use crate::symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId};
 
+#[derive(Debug)]
+pub enum SymbolRenderError {
+    GenericError(String),
+}
+
+#[derive(Debug)]
+pub enum RenderError {
+    GenericError(String),
+    SymbolRenderError(SymbolRenderError),
+    InvalidSymbol(SymbolTableEntryId),
+}
+
+impl std::convert::From<SymbolRenderError> for RenderError {
+    fn from(e: SymbolRenderError) -> Self {
+        RenderError::SymbolRenderError(e)
+    }
+}
+
 pub trait SymbolIdRenderer {
-    fn render(&self, symbol_id: SymbolTableEntryId) -> String;
+    fn render(&self, symbol_id: SymbolTableEntryId) -> Result<String, SymbolRenderError>;
 }
 
 pub struct SymbolIdRendererU8<'a> {
@@ -38,17 +56,18 @@ pub fn utf8_or_escaped(v: &[u8]) -> String {
 }
 
 impl<'a> SymbolIdRenderer for SymbolIdRendererU8<'a> {
-    fn render(&self, symbol_id: SymbolTableEntryId) -> String {
+    fn render(&self, symbol_id: SymbolTableEntryId) -> Result<String, SymbolRenderError> {
         let symbol = self.table.get_by_id(symbol_id).unwrap();
         match symbol {
-            SymbolTableEntry::Start => self.start.to_string(),
-            SymbolTableEntry::End => self.end.to_string(),
+            SymbolTableEntry::Start => Ok(self.start.to_string()),
+            SymbolTableEntry::End => Ok(self.end.to_string()),
             SymbolTableEntry::Single(b) => {
                 let part: Vec<u8> = std::ascii::escape_default(*b).collect();
-                String::from_utf8(part).unwrap()
+                //TODO: Handle this error?
+                Ok(String::from_utf8(part).unwrap())
             }
-            SymbolTableEntry::Compound(bs) => utf8_or_escaped(&bs),
-            SymbolTableEntry::Dead(_) => "✞".to_string(),
+            SymbolTableEntry::Compound(bs) => Ok(utf8_or_escaped(&bs)),
+            SymbolTableEntry::Dead(_) => Ok("✞".to_string()),
         }
     }
 }
@@ -60,14 +79,14 @@ pub struct SymbolIdRendererChar<'a> {
 }
 
 impl<'a> SymbolIdRenderer for SymbolIdRendererChar<'a> {
-    fn render(&self, symbol_id: SymbolTableEntryId) -> String {
+    fn render(&self, symbol_id: SymbolTableEntryId) -> Result<String, SymbolRenderError> {
         let symbol = self.table.get_by_id(symbol_id).unwrap();
         match symbol {
-            SymbolTableEntry::Start => self.start.to_string(),
-            SymbolTableEntry::End => self.end.to_string(),
-            SymbolTableEntry::Single(c) => format!("{}", c),
-            SymbolTableEntry::Compound(cs) => cs.iter().collect::<String>(),
-            SymbolTableEntry::Dead(_) => "✞".to_string(),
+            SymbolTableEntry::Start => Ok(self.start.to_string()),
+            SymbolTableEntry::End => Ok(self.end.to_string()),
+            SymbolTableEntry::Single(c) => Ok(format!("{}", c)),
+            SymbolTableEntry::Compound(cs) => Ok(cs.iter().collect::<String>()),
+            SymbolTableEntry::Dead(_) => Ok("✞".to_string()),
         }
     }
 }
@@ -75,14 +94,14 @@ impl<'a> SymbolIdRenderer for SymbolIdRendererChar<'a> {
 pub trait Renderer {
     //TODO: Should this instead use a writer?
     //TODO: Should it report errors?
-    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> String;
+    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> Result<String, RenderError>;
 }
 
 pub struct RendererId {}
 
 impl Renderer for RendererId {
-    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> String {
-        format!("{:?}", v.iter().map(|id| id.0).collect::<Vec<_>>())
+    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
+        Ok(format!("{:?}", v.iter().map(|id| id.0).collect::<Vec<_>>()))
     }
 }
 
@@ -93,11 +112,14 @@ pub struct RenderU8<'a> {
 }
 
 impl<'b> Renderer for RenderU8<'b> {
-    fn render<'a>(&self, ids: &'a [SymbolTableEntryId]) -> String {
+    fn render<'a>(&self, ids: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
         //TODO: Get rid of SymbolRender and replace with symbol_id_render?
         let mut result: Vec<u8> = vec![];
         for id in ids {
-            let s = self.table.get_by_id(*id).unwrap();
+            let s = self
+                .table
+                .get_by_id(*id)
+                .ok_or_else(|| RenderError::InvalidSymbol(*id))?;
             match s {
                 SymbolTableEntry::Start => {
                     result.extend_from_slice(self.start);
@@ -114,7 +136,7 @@ impl<'b> Renderer for RenderU8<'b> {
                 SymbolTableEntry::Dead(_) => panic!("DEAD"),
             }
         }
-        utf8_or_escaped(&result)
+        Ok(utf8_or_escaped(&result))
     }
 }
 
@@ -125,7 +147,7 @@ pub struct RenderChar<'a> {
 }
 
 impl<'b> Renderer for RenderChar<'b> {
-    fn render<'a>(&self, ids: &'a [SymbolTableEntryId]) -> String {
+    fn render<'a>(&self, ids: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
         //TODO: Get rid of SymbolRender and replace with symbol_id_render?
         let mut result: String = String::new();
         for id in ids {
@@ -147,7 +169,7 @@ impl<'b> Renderer for RenderChar<'b> {
                 SymbolTableEntry::Dead(_) => panic!("DEAD"),
             }
         }
-        result
+        Ok(result)
     }
 }
 
@@ -188,12 +210,12 @@ impl<'b, T> Renderer for RendererWithSeparator<'b, T>
 where
     T: SymbolIdRenderer,
 {
-    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> String {
+    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
         use std::fmt::Write;
         let mut result: String = String::new();
         let mut is_start = true;
         for s in v {
-            let symbol_str = self.symbol_renderer.render(*s);
+            let symbol_str = self.symbol_renderer.render(*s)?;
             if is_start {
                 is_start = false;
                 write!(&mut result, "{}", symbol_str).unwrap();
@@ -201,7 +223,7 @@ where
                 write!(&mut result, "{}{}", self.separator, symbol_str).unwrap();
             }
         }
-        result
+        Ok(result)
     }
 }
 
@@ -229,7 +251,7 @@ pub mod tests {
     }
 
     #[test]
-    pub fn check_symbol_table_render() {
+    pub fn check_symbol_table_render() -> Result<(), RenderError> {
         let (s, c) = default_symbol_table();
 
         let sr = RenderU8 {
@@ -238,26 +260,30 @@ pub mod tests {
             end: b"$",
         };
 
-        let u: String = sr.render(&vec![]);
+        let u: String = sr.render(&vec![])?;
         assert_eq!(u, "");
 
-        //TODO: Should this be an error?
-        // let u: String = sr.render(&vec![SymbolTableEntryId(123)]);
-        // assert_eq!(u, "?");
+        let u = sr.render(&vec![SymbolTableEntryId(123)]);
+        assert!(matches!(
+            u,
+            Err(RenderError::InvalidSymbol(SymbolTableEntryId(123)))
+        ));
 
-        let u: String = sr.render(&vec![c.start]);
+        let u: String = sr.render(&vec![c.start])?;
         assert_eq!(u, "^");
 
-        let u: String = sr.render(&vec![c.end]);
+        let u: String = sr.render(&vec![c.end])?;
         assert_eq!(u, "$");
 
-        let u: String = sr.render(&vec![c.a]);
+        let u: String = sr.render(&vec![c.a])?;
         assert_eq!(u, "a");
 
-        let u: String = sr.render(&vec![c.xyz]);
+        let u: String = sr.render(&vec![c.xyz])?;
         assert_eq!(u, "xyz");
 
-        let u: String = sr.render(&vec![c.start, c.a, c.xyz, c.end]);
+        let u: String = sr.render(&vec![c.start, c.a, c.xyz, c.end])?;
         assert_eq!(u, "^axyz$");
+
+        Ok(())
     }
 }

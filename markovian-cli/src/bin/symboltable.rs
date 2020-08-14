@@ -274,7 +274,7 @@ fn command_print(p: &PrintCommand) {
             };
             for e in table.iter() {
                 let (k, _v): (SymbolTableEntryId, &SymbolTableEntry<u8>) = e;
-                println!("{} => {}", k.0, symbol_renderer.render(k));
+                println!("{} => {}", k.0, symbol_renderer.render(k).unwrap());
             }
         }
         SymbolTableFile::String(table) => {
@@ -286,7 +286,7 @@ fn command_print(p: &PrintCommand) {
 
             for e in table.iter() {
                 let (k, _v): (SymbolTableEntryId, &SymbolTableEntry<char>) = e;
-                println!("{} => {}", k.0, symbol_renderer.render(k));
+                println!("{} => {}", k.0, symbol_renderer.render(k).unwrap());
             }
         }
     }
@@ -388,7 +388,7 @@ fn command_analyse(x: &AnalyseCommand) {
 
     println!("Individual symbol counts");
     for (k, v) in symbol_counts {
-        println!("{} {:?}", symbol_renderer.render(k), v);
+        println!("{} {:?}", symbol_renderer.render(k).unwrap(), v);
     }
 
     println!("--- bigrams ---");
@@ -408,8 +408,8 @@ fn command_analyse(x: &AnalyseCommand) {
     for (k, c) in bigram_counts.iter() {
         println!(
             "{}|{} {}",
-            symbol_renderer.render(k.0),
-            symbol_renderer.render(k.1),
+            symbol_renderer.render(k.0).unwrap(),
+            symbol_renderer.render(k.1).unwrap(),
             c
         )
     }
@@ -472,7 +472,7 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
 
     println!("Individual symbol counts");
     for (k, v) in symbol_counts {
-        println!("{} {:?}", symbol_renderer.render(k), v);
+        println!("{} {:?}", symbol_renderer.render(k).unwrap(), v);
     }
 
     println!("--- bigrams ---");
@@ -492,8 +492,8 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     for (k, c) in bigram_counts.iter() {
         println!(
             "{}|{} {}",
-            symbol_renderer.render(k.0),
-            symbol_renderer.render(k.1),
+            symbol_renderer.render(k.0).unwrap(),
+            symbol_renderer.render(k.1).unwrap(),
             c
         )
     }

@@ -4,7 +4,6 @@ use structopt::StructOpt;
 
 use markovian_core::{
     analyser::AnalyserWrapper,
-    ngram::BigramCount,
     renderer::{
         renderer_for_char_with_separator, renderer_for_u8_with_separator, RenderChar, RenderU8,
         Renderer, RendererId, SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8,
@@ -155,17 +154,6 @@ fn main() {
         Command::Symbolify(s) => command_symbolify(s),
         Command::Analyse(x) => command_analyse(x),
         Command::Improve(x) => command_improve_symbol_table(x),
-    }
-}
-
-fn get_symbol_renderer<'a>(
-    symbol_table: &'a SymbolTableWrapper,
-    start: &'a str,
-    end: &'a str,
-) -> Box<dyn SymbolIdRenderer + 'a> {
-    match &symbol_table {
-        SymbolTableWrapper::Bytes(table) => Box::new(SymbolIdRendererU8 { table, start, end }),
-        SymbolTableWrapper::String(table) => Box::new(SymbolIdRendererChar { table, start, end }),
     }
 }
 

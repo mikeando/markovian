@@ -1,15 +1,17 @@
-use ::serde::{Deserialize, Serialize};
 use log::{debug, info};
 use std::{collections::BTreeMap, path::PathBuf};
 use structopt::StructOpt;
 
 use markovian_core::{
+    analyser::AnalyserWrapper,
     ngram::BigramCount,
     renderer::{
         renderer_for_char_with_separator, renderer_for_u8_with_separator, RenderChar, RenderU8,
         Renderer, RendererId, SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8,
     },
-    symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId},
+    symbol::{
+        SymbolTable, SymbolTableEntry, SymbolTableEntryId, SymbolTableWrapper, TableEncoding,
+    },
 };
 
 #[derive(Debug, StructOpt)]
@@ -97,52 +99,6 @@ struct ImproveSymbolTableCommand {
     input_file: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum SymbolTableFile {
-    Bytes(SymbolTable<u8>),
-    String(SymbolTable<char>),
-}
-
-impl SymbolTableFile {
-    pub fn encoding(&self) -> TableEncoding {
-        match self {
-            SymbolTableFile::Bytes(_) => TableEncoding::Bytes,
-            SymbolTableFile::String(_) => TableEncoding::String,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            SymbolTableFile::Bytes(table) => table.len(),
-            SymbolTableFile::String(table) => table.len(),
-        }
-    }
-
-    pub fn symbolifications(&self, s: &str) -> Vec<Vec<SymbolTableEntryId>> {
-        match self {
-            SymbolTableFile::Bytes(table) => table.symbolifications_str(s),
-            SymbolTableFile::String(table) => {
-                table.symbolifications(&s.chars().collect::<Vec<_>>())
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum TableEncoding {
-    Bytes,
-    String,
-}
-
-impl TableEncoding {
-    pub fn encoding_name(&self) -> &str {
-        match self {
-            TableEncoding::Bytes => "u8",
-            TableEncoding::String => "char",
-        }
-    }
-}
-
 pub fn table_encoding_from_string(v: &str) -> Result<TableEncoding, String> {
     if v.to_lowercase() == "bytes" {
         return Ok(TableEncoding::Bytes);
@@ -203,20 +159,20 @@ fn main() {
 }
 
 fn get_symbol_renderer<'a>(
-    symbol_table: &'a SymbolTableFile,
+    symbol_table: &'a SymbolTableWrapper,
     start: &'a str,
     end: &'a str,
 ) -> Box<dyn SymbolIdRenderer + 'a> {
     match &symbol_table {
-        SymbolTableFile::Bytes(table) => Box::new(SymbolIdRendererU8 { table, start, end }),
-        SymbolTableFile::String(table) => Box::new(SymbolIdRendererChar { table, start, end }),
+        SymbolTableWrapper::Bytes(table) => Box::new(SymbolIdRendererU8 { table, start, end }),
+        SymbolTableWrapper::String(table) => Box::new(SymbolIdRendererChar { table, start, end }),
     }
 }
 
 fn command_symbolify(cmd: &SymbolifyCommand) {
     info!("SYMBOLIFY: {:?}", cmd);
     let data = std::fs::read(&cmd.symboltable).unwrap();
-    let symboltable: SymbolTableFile = bincode::deserialize(&data).unwrap();
+    let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
     info!("encoding: {}", symboltable.encoding().encoding_name());
     info!("n_symbols: {}", symboltable.len());
 
@@ -224,20 +180,20 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
         Box::new(RendererId {})
     } else {
         match (&symboltable, &cmd.symbol_separator) {
-            (SymbolTableFile::Bytes(table), None) => Box::new(RenderU8 {
+            (SymbolTableWrapper::Bytes(table), None) => Box::new(RenderU8 {
                 table: &table,
                 start: b"^",
                 end: b"$",
             }),
-            (SymbolTableFile::Bytes(table), Some(sep)) => {
+            (SymbolTableWrapper::Bytes(table), Some(sep)) => {
                 Box::new(renderer_for_u8_with_separator(&table, &sep))
             }
-            (SymbolTableFile::String(table), None) => Box::new(RenderChar {
+            (SymbolTableWrapper::String(table), None) => Box::new(RenderChar {
                 table: &table,
                 start: "^",
                 end: "$",
             }),
-            (SymbolTableFile::String(table), Some(sep)) => {
+            (SymbolTableWrapper::String(table), Some(sep)) => {
                 Box::new(renderer_for_char_with_separator(&table, &sep))
             }
         }
@@ -245,8 +201,8 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
 
     for s in &cmd.input {
         let reprs = match &symboltable {
-            SymbolTableFile::Bytes(table) => table.symbolifications(s.as_bytes()),
-            SymbolTableFile::String(table) => {
+            SymbolTableWrapper::Bytes(table) => table.symbolifications(s.as_bytes()),
+            SymbolTableWrapper::String(table) => {
                 table.symbolifications(&s.chars().collect::<Vec<_>>())
             }
         };
@@ -261,12 +217,12 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
 fn command_print(p: &PrintCommand) {
     info!("PRINT: {:?}", p);
     let data = std::fs::read(&p.input).unwrap();
-    let decoded: SymbolTableFile = bincode::deserialize(&data).unwrap();
+    let decoded: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
     println!("encoding: {}", decoded.encoding().encoding_name());
     println!("n_symbols: {}", decoded.len());
 
     match decoded {
-        SymbolTableFile::Bytes(table) => {
+        SymbolTableWrapper::Bytes(table) => {
             let symbol_renderer = SymbolIdRendererU8 {
                 table: &table,
                 start: "START",
@@ -277,7 +233,7 @@ fn command_print(p: &PrintCommand) {
                 println!("{} => {}", k.0, symbol_renderer.render(k).unwrap());
             }
         }
-        SymbolTableFile::String(table) => {
+        SymbolTableWrapper::String(table) => {
             let symbol_renderer = SymbolIdRendererChar {
                 table: &table,
                 start: "START",
@@ -319,7 +275,7 @@ fn command_generate(g: &GenerateCommand) {
                     symbol_table.add(SymbolTableEntry::Single(*b));
                 }
             }
-            SymbolTableFile::Bytes(symbol_table)
+            SymbolTableWrapper::Bytes(symbol_table)
         }
         TableEncoding::String => {
             let mut symbol_table = SymbolTable::<char>::new();
@@ -328,7 +284,7 @@ fn command_generate(g: &GenerateCommand) {
                     symbol_table.add(SymbolTableEntry::Single(c));
                 }
             }
-            SymbolTableFile::String(symbol_table)
+            SymbolTableWrapper::String(symbol_table)
         }
     };
     println!("found {} symbols", file_data.len());
@@ -341,7 +297,7 @@ fn command_generate(g: &GenerateCommand) {
 fn command_analyse(x: &AnalyseCommand) {
     // Load the symboltable
     let data = std::fs::read(&x.symboltable).unwrap();
-    let symboltable: SymbolTableFile = bincode::deserialize(&data).unwrap();
+    let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
 
     // Load the text
     let input_tokens: Vec<String> = x
@@ -359,32 +315,19 @@ fn command_analyse(x: &AnalyseCommand) {
         .flatten()
         .collect();
 
-    let input_tokens = input_tokens
-        .iter()
-        .map(|s| symboltable.symbolifications(s))
-        .collect::<Vec<_>>();
+    let analyser = AnalyserWrapper::new(symboltable, input_tokens);
+    let symbol_renderer = analyser.get_symbol_renderer("^", "$");
 
-    let mut symbolization_counts: BTreeMap<usize, usize> = BTreeMap::new();
-    for k in &input_tokens {
-        *symbolization_counts.entry(k.len()).or_insert(0) += 1;
-    }
-
+    //TODO: This counts only shortest tokenizations (which is what we want in the minimize case, but maybe not in the
+    // analyse case)
+    let symbolization_counts: BTreeMap<usize, usize> = analyser.get_symbolization_ways_counts();
     println!("");
     for (len, count) in symbolization_counts {
         println!("{} entries each symbolize exactly {} ways", count, len)
     }
     println!("");
 
-    let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
-    for x in input_tokens.iter().flatten().flatten() {
-        *symbol_counts.entry(*x).or_insert(0) += 1
-    }
-
-    let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
-    symbol_counts.sort_by_key(|e| e.1);
-    symbol_counts.reverse();
-
-    let symbol_renderer = get_symbol_renderer(&symboltable, "^", "$");
+    let symbol_counts = analyser.get_ordered_symbol_counts();
 
     println!("Individual symbol counts");
     for (k, v) in symbol_counts {
@@ -392,18 +335,8 @@ fn command_analyse(x: &AnalyseCommand) {
     }
 
     println!("--- bigrams ---");
-    let bigram_counts: BigramCount<SymbolTableEntryId, usize> = input_tokens
-        .iter()
-        .flatten()
-        .map(|v| -> &[SymbolTableEntryId] { &v })
-        .collect();
 
-    let mut bigram_counts: Vec<_> = bigram_counts
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    bigram_counts.sort_by_key(|e| e.1);
-    bigram_counts.reverse();
+    let bigram_counts = analyser.get_ordered_bigram_counts();
 
     for (k, c) in bigram_counts.iter() {
         println!(
@@ -418,7 +351,7 @@ fn command_analyse(x: &AnalyseCommand) {
 fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     // Load the symboltable
     let data = std::fs::read(&x.symboltable).unwrap();
-    let symboltable: SymbolTableFile = bincode::deserialize(&data).unwrap();
+    let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
 
     // Load the text
     let input_tokens: Vec<String> = x
@@ -436,39 +369,17 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
         .flatten()
         .collect();
 
-    let input_tokens = input_tokens
-        .iter()
-        .map(|s| {
-            let ss = symboltable.symbolifications(&s);
-            (s, ss)
-        })
-        .collect::<Vec<_>>();
+    let analyser = AnalyserWrapper::new(symboltable, input_tokens);
+    let symbol_renderer = analyser.get_symbol_renderer("^", "$");
 
-    // In this case we
-    //   1. take the shortest form
-    //   2. error if there is no valid form
-    //   3. If more than one form has the same length, we add all with that length.
-    let input_tokens = input_tokens
-        .iter()
-        .map(|(k, v)| {
-            //TODO: Remove the unwrap!
-            let min_len = v.iter().map(|ss| ss.len()).min().unwrap();
-            let short: Vec<_> = v.iter().filter(|ss| ss.len() == min_len).collect();
-            (k, short)
-        })
-        .collect::<Vec<_>>();
-
-    let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
-
-    for x in input_tokens.iter().flat_map(|(_k, v)| v).cloned().flatten() {
-        *symbol_counts.entry(*x).or_insert(0) += 1
+    let symbolization_counts: BTreeMap<usize, usize> = analyser.get_symbolization_ways_counts();
+    println!("");
+    for (len, count) in symbolization_counts {
+        println!("{} entries each symbolize exactly {} ways", count, len)
     }
+    println!("");
 
-    let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
-    symbol_counts.sort_by_key(|e| e.1);
-    symbol_counts.reverse();
-
-    let symbol_renderer = get_symbol_renderer(&symboltable, "^", "$");
+    let symbol_counts = analyser.get_ordered_symbol_counts();
 
     println!("Individual symbol counts");
     for (k, v) in symbol_counts {
@@ -476,18 +387,8 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     }
 
     println!("--- bigrams ---");
-    let bigram_counts: BigramCount<SymbolTableEntryId, usize> = input_tokens
-        .iter()
-        .flat_map(|(_k, v)| v)
-        .map(|v| -> &[SymbolTableEntryId] { &v })
-        .collect();
 
-    let mut bigram_counts: Vec<_> = bigram_counts
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    bigram_counts.sort_by_key(|e| e.1);
-    bigram_counts.reverse();
+    let bigram_counts = analyser.get_ordered_bigram_counts();
 
     for (k, c) in bigram_counts.iter() {
         println!(

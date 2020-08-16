@@ -1,7 +1,9 @@
 use crate::{
     ngram::BigramCount,
-    symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId},
+    renderer::{SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8},
+    symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId, SymbolTableWrapper},
 };
+use std::collections::BTreeMap;
 
 // TODO: Would be nice to be able to return a slice when we can rather than
 // allocating up a complete buffer, but the lifetimes on the required associated types
@@ -11,7 +13,7 @@ pub trait WordToToken<T> {
 }
 
 pub struct Analyser<T, Tokenizer> {
-    symbol_table: SymbolTable<T>,
+    pub symbol_table: SymbolTable<T>,
     tokenizer: Tokenizer,
     word_list: Vec<String>,
 }
@@ -45,6 +47,10 @@ where
             tokenizer,
             word_list,
         }
+    }
+
+    pub fn word_list(&self) -> Vec<&str> {
+        self.word_list.iter().map(|v| v.as_str()).collect()
     }
 
     pub fn shortest_symbolifications(&self, word: &str) -> Vec<Vec<SymbolTableEntryId>> {
@@ -122,7 +128,7 @@ where
     }
 }
 
-struct CharTokenizer;
+pub struct CharTokenizer;
 
 impl WordToToken<char> for CharTokenizer {
     fn convert<'a>(&self, s: &'a str) -> Vec<char> {
@@ -130,11 +136,111 @@ impl WordToToken<char> for CharTokenizer {
     }
 }
 
-struct ByteTokenizer;
+pub struct ByteTokenizer;
 
 impl WordToToken<u8> for ByteTokenizer {
     fn convert<'a>(&self, s: &'a str) -> Vec<u8> {
         s.as_bytes().to_vec()
+    }
+}
+
+pub enum AnalyserWrapper {
+    Bytes(Analyser<u8, ByteTokenizer>),
+    String(Analyser<char, CharTokenizer>),
+}
+
+impl AnalyserWrapper {
+    pub fn new(table: SymbolTableWrapper, word_list: Vec<String>) -> AnalyserWrapper {
+        match table {
+            SymbolTableWrapper::Bytes(table) => {
+                AnalyserWrapper::Bytes(Analyser::new(table, ByteTokenizer, word_list))
+            }
+            SymbolTableWrapper::String(table) => {
+                AnalyserWrapper::String(Analyser::new(table, CharTokenizer, word_list))
+            }
+        }
+    }
+
+    pub fn word_list(&self) -> Vec<&str> {
+        match self {
+            AnalyserWrapper::Bytes(v) => v.word_list(),
+            AnalyserWrapper::String(v) => v.word_list(),
+        }
+    }
+
+    pub fn symbolifications(&self, word: &str) -> Vec<Vec<SymbolTableEntryId>> {
+        match self {
+            AnalyserWrapper::Bytes(v) => v.shortest_symbolifications(word),
+            AnalyserWrapper::String(v) => v.shortest_symbolifications(word),
+        }
+    }
+
+    pub fn get_all_symbolifications(&self) -> Vec<Vec<Vec<SymbolTableEntryId>>> {
+        self.word_list()
+            .iter()
+            .map(|s| self.symbolifications(s))
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_symbolization_ways_counts(&self) -> BTreeMap<usize, usize> {
+        let mut symbolization_counts: BTreeMap<usize, usize> = BTreeMap::new();
+        for word in self.word_list() {
+            let n_symbolizations = self.symbolifications(word).len();
+            *symbolization_counts.entry(n_symbolizations).or_insert(0) += 1;
+        }
+        symbolization_counts
+    }
+
+    pub fn get_ordered_symbol_counts(&self) -> Vec<(SymbolTableEntryId, usize)> {
+        let mut symbol_counts: BTreeMap<SymbolTableEntryId, usize> = BTreeMap::new();
+        for x in self.get_all_symbolifications().iter().flatten().flatten() {
+            *symbol_counts.entry(*x).or_insert(0) += 1
+        }
+
+        let mut symbol_counts: Vec<_> = symbol_counts.into_iter().collect();
+        symbol_counts.sort_by_key(|e| e.1);
+        symbol_counts.reverse();
+        symbol_counts
+    }
+
+    pub fn get_bigram_counts(&self) -> BigramCount<SymbolTableEntryId, usize> {
+        self.get_all_symbolifications()
+            .iter()
+            .flatten()
+            .map(|v| -> &[SymbolTableEntryId] { &v })
+            .collect()
+    }
+
+    pub fn get_ordered_bigram_counts(
+        &self,
+    ) -> Vec<((SymbolTableEntryId, SymbolTableEntryId), usize)> {
+        let mut bigram_counts: Vec<_> = self
+            .get_bigram_counts()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        bigram_counts.sort_by_key(|e| e.1);
+        bigram_counts.reverse();
+        bigram_counts
+    }
+
+    pub fn get_symbol_renderer<'a>(
+        &'a self,
+        start: &'a str,
+        end: &'a str,
+    ) -> Box<dyn SymbolIdRenderer + 'a> {
+        match self {
+            AnalyserWrapper::Bytes(v) => Box::new(SymbolIdRendererU8 {
+                table: &v.symbol_table,
+                start,
+                end,
+            }),
+            AnalyserWrapper::String(v) => Box::new(SymbolIdRendererChar {
+                table: &v.symbol_table,
+                start,
+                end,
+            }),
+        }
     }
 }
 

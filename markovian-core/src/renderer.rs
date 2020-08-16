@@ -50,7 +50,7 @@ pub fn utf8_or_escaped(v: &[u8]) -> String {
                 .flat_map(|b| std::ascii::escape_default(*b).collect::<Vec<_>>())
                 .collect();
             String::from_utf8(part).unwrap()
-            //Or we could use Strng::from_utf_8_lossy - but it wouldn't include as much info in the failure.
+            //Or we could use String::from_utf_8_lossy - but it wouldn't include as much info in the failure.
         }
     }
 }

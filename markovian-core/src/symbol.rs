@@ -379,6 +379,52 @@ impl SymbolTable<u8> {
     }
 }
 
+#[derive(Debug)]
+pub enum TableEncoding {
+    Bytes,
+    String,
+}
+
+impl TableEncoding {
+    pub fn encoding_name(&self) -> &str {
+        match self {
+            TableEncoding::Bytes => "u8",
+            TableEncoding::String => "char",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SymbolTableWrapper {
+    Bytes(SymbolTable<u8>),
+    String(SymbolTable<char>),
+}
+
+impl SymbolTableWrapper {
+    pub fn encoding(&self) -> TableEncoding {
+        match self {
+            SymbolTableWrapper::Bytes(_) => TableEncoding::Bytes,
+            SymbolTableWrapper::String(_) => TableEncoding::String,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            SymbolTableWrapper::Bytes(table) => table.len(),
+            SymbolTableWrapper::String(table) => table.len(),
+        }
+    }
+
+    pub fn symbolifications(&self, s: &str) -> Vec<Vec<SymbolTableEntryId>> {
+        match self {
+            SymbolTableWrapper::Bytes(table) => table.symbolifications_str(s),
+            SymbolTableWrapper::String(table) => {
+                table.symbolifications(&s.chars().collect::<Vec<_>>())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

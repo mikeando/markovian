@@ -309,11 +309,11 @@ fn command_analyse(x: &AnalyseCommand) {
     //TODO: This counts only shortest tokenizations (which is what we want in the minimize case, but maybe not in the
     // analyse case)
     let symbolization_counts: BTreeMap<usize, usize> = analyser.get_symbolization_ways_counts();
-    println!("");
+    println!();
     for (len, count) in symbolization_counts {
         println!("{} entries each symbolize exactly {} ways", count, len)
     }
-    println!("");
+    println!();
 
     let symbol_counts = analyser.get_ordered_symbol_counts();
 
@@ -338,11 +338,11 @@ fn command_analyse(x: &AnalyseCommand) {
 
 fn print_analyser_summary(analyser: &AnalyserWrapper) {
     let symbolization_counts: BTreeMap<usize, usize> = analyser.get_symbolization_ways_counts();
-    println!("");
+    println!();
     for (len, count) in symbolization_counts {
         println!("{} entries each symbolize exactly {} ways", count, len)
     }
-    println!("");
+    println!();
 
     let symbol_counts = analyser.get_ordered_symbol_counts();
 

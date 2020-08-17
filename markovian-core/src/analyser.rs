@@ -229,7 +229,7 @@ impl AnalyserWrapper {
         let mut bigram_counts: Vec<_> = self
             .get_bigram_counts()
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (*k, *v))
             .collect();
         bigram_counts.sort_by_key(|e| e.1);
         bigram_counts.reverse();

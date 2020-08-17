@@ -336,6 +336,41 @@ fn command_analyse(x: &AnalyseCommand) {
     }
 }
 
+fn print_analyser_summary(analyser: &AnalyserWrapper) {
+    let symbolization_counts: BTreeMap<usize, usize> = analyser.get_symbolization_ways_counts();
+    println!("");
+    for (len, count) in symbolization_counts {
+        println!("{} entries each symbolize exactly {} ways", count, len)
+    }
+    println!("");
+
+    let symbol_counts = analyser.get_ordered_symbol_counts();
+
+    println!("Individual symbol counts");
+    {
+        let symbol_renderer = analyser.get_symbol_renderer("^", "$");
+        for (k, v) in symbol_counts {
+            println!("{} {:?}", symbol_renderer.render(k).unwrap(), v);
+        }
+    }
+
+    println!("--- bigrams ---");
+
+    let bigram_counts = analyser.get_ordered_bigram_counts();
+
+    {
+        let symbol_renderer = analyser.get_symbol_renderer("^", "$");
+        for (k, c) in bigram_counts.iter() {
+            println!(
+                "{}|{} {}",
+                symbol_renderer.render(k.0).unwrap(),
+                symbol_renderer.render(k.1).unwrap(),
+                c
+            )
+        }
+    }
+}
+
 fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
     // Load the symboltable
     let data = std::fs::read(&x.symboltable).unwrap();
@@ -357,37 +392,44 @@ fn command_improve_symbol_table(x: &ImproveSymbolTableCommand) {
         .flatten()
         .collect();
 
-    let analyser = AnalyserWrapper::new(symboltable, input_tokens);
-    let symbol_renderer = analyser.get_symbol_renderer("^", "$");
+    let mut analyser = AnalyserWrapper::new(symboltable, input_tokens);
 
-    let symbolization_counts: BTreeMap<usize, usize> = analyser.get_symbolization_ways_counts();
-    println!("");
-    for (len, count) in symbolization_counts {
-        println!("{} entries each symbolize exactly {} ways", count, len)
+    print_analyser_summary(&analyser);
+
+    // TODO: Move these into the analyser and provide callbacks to handle the reporting etc.
+    for _i in 0..10 {
+        // Take the commonest bigram and remove it
+        let bigram_counts = analyser.get_ordered_bigram_counts();
+
+        let bigram = bigram_counts[0].0;
+        {
+            let symbol_renderer = analyser.get_symbol_renderer("^", "$");
+            println!(
+                "Commonest bigram is {}|{}",
+                symbol_renderer.render(bigram.0).unwrap(),
+                symbol_renderer.render(bigram.1).unwrap()
+            );
+        }
+
+        let _new_symbol = analyser.concatenate_symbols(bigram.0, bigram.1);
+
+        let symbol_renderer = analyser.get_symbol_renderer("^", "$");
+        let symbol_counts = analyser.get_ordered_symbol_counts();
+        for (id, count) in symbol_counts {
+            if count == 0 {
+                println!(
+                    "Removing unused symbol {}",
+                    symbol_renderer.render(id).unwrap()
+                );
+                // analyser.remove_symbol(id)
+            }
+        }
+
+        // TODO: Scan for "unique" prefix / suffix pairs in the bigrams e.g. we can often replace q|u with qu without
+        // cost. This is especially important when working with UTF-8 as bytes.
     }
-    println!("");
 
-    let symbol_counts = analyser.get_ordered_symbol_counts();
+    print_analyser_summary(&analyser);
 
-    println!("Individual symbol counts");
-    for (k, v) in symbol_counts {
-        println!("{} {:?}", symbol_renderer.render(k).unwrap(), v);
-    }
-
-    println!("--- bigrams ---");
-
-    let bigram_counts = analyser.get_ordered_bigram_counts();
-
-    for (k, c) in bigram_counts.iter() {
-        println!(
-            "{}|{} {}",
-            symbol_renderer.render(k.0).unwrap(),
-            symbol_renderer.render(k.1).unwrap(),
-            c
-        )
-    }
-
-    // Take the commonest bigram and remove it
-
-    // Remove any symbols that don't occur in the input.
+    //TODO: Save the resulting symbol table
 }

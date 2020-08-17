@@ -354,7 +354,7 @@ impl<T> SymbolTable<T> {
     // Same as symbolification_prefix but allows first symbol to overhang front.
     pub fn symbolifications_suffix(&self, v: &[T]) -> Vec<Vec<SymbolTableEntryId>>
     where
-        T: Eq + std::fmt::Debug,
+        T: Eq,
     {
         if v.is_empty() {
             return vec![vec![]];

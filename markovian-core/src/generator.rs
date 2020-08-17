@@ -17,7 +17,7 @@ pub struct TransitionTable<T, D> {
 
 impl<T, D> TransitionTable<T, D>
 where
-    T: Ord + Clone + std::fmt::Debug,
+    T: Ord + Clone,
     D: Field,
 {
     pub fn new(counts: TrigramCount<T, D>) -> TransitionTable<T, D> {

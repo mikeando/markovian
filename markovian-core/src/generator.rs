@@ -11,6 +11,17 @@ use std::{
     iter,
 };
 
+#[derive(Debug)]
+pub enum GenerationError {
+    GenericError(String),
+}
+
+impl GenerationError {
+    pub fn generic_error<T: Into<String>>(v: T) -> GenerationError {
+        GenerationError::GenericError(v.into())
+    }
+}
+
 pub struct TransitionTable<T, D> {
     weights_table: BTreeMap<(T, T), WeightedSampler<T, D>>,
 }
@@ -33,13 +44,12 @@ where
         TransitionTable { weights_table }
     }
 
-    pub fn sample<R: Rng>(&self, key: &[T], rng: &mut R) -> T {
+    pub fn sample<R: Rng>(&self, key: &[T], rng: &mut R) -> Option<T> {
         //TODO: Make this error properly, or accept something such that it can't error like &[T;3]?
         assert!(key.len() == 2);
 
-        let m = self.weights_table.get(&(key[0].clone(), key[1].clone()));
-        //TODO: Dont unwrap - error sensibly!
-        m.unwrap().sample_next_symbol(rng)
+        let m = self.weights_table.get(&(key[0].clone(), key[1].clone()))?;
+        m.sample_next_symbol(rng)
     }
 
     pub fn context_length(&self) -> usize {
@@ -146,16 +156,26 @@ where
             })
             .collect();
 
-        let mut min_log_p = 0.0;
-        for (_, logp) in &prefixes_with_log_prob {
-            if *logp < min_log_p {
-                min_log_p = *logp;
-            }
-        }
         let mut sampler = WeightedSampler::<Vec<SymbolTableEntryId>, f32>::new();
-        for (ss, logp) in prefixes_with_log_prob {
-            let w = (logp - min_log_p).exp();
-            sampler.add_symbol_with_weight(ss, w);
+        if prefixes_with_log_prob
+            .iter()
+            .all(|(_k, logp)| *logp == -f32::INFINITY)
+        {
+            // They all have zero weight so we just assume all are equally likely
+            for (ss, _logp) in prefixes_with_log_prob {
+                sampler.add_symbol_with_weight(ss, 1.0);
+            }
+        } else {
+            let mut min_log_p = 0.0;
+            for (_, logp) in &prefixes_with_log_prob {
+                if (*logp < min_log_p) && (*logp > -f32::INFINITY) {
+                    min_log_p = *logp;
+                }
+            }
+            for (ss, logp) in prefixes_with_log_prob {
+                let w = (logp - min_log_p).exp();
+                sampler.add_symbol_with_weight(ss, w);
+            }
         }
         sampler
     }
@@ -201,12 +221,15 @@ where
         terminal: SymbolTableEntryId,
         mut v: Vec<SymbolTableEntryId>,
         rng: &mut R,
-    ) -> Vec<SymbolTableEntryId> {
+    ) -> Result<Vec<SymbolTableEntryId>, GenerationError> {
         loop {
-            let next: SymbolTableEntryId = transition_table.sample(self.key(&v), rng);
+            let next: Option<SymbolTableEntryId> = transition_table.sample(self.key(&v), rng);
+            let next = next.ok_or_else(|| {
+                GenerationError::generic_error("Unable to find valid continuation")
+            })?;
             if next == terminal {
                 v.extend(iter::repeat(terminal).take(self.context_length()));
-                return v;
+                return Ok(v);
             }
             v.push(next);
         }
@@ -216,7 +239,7 @@ where
         &self,
         v: Vec<SymbolTableEntryId>,
         rng: &mut R,
-    ) -> Vec<SymbolTableEntryId> {
+    ) -> Result<Vec<SymbolTableEntryId>, GenerationError> {
         let end_id = self.end_symbol_id();
         self.continue_prediction(&self.transition_table, end_id, v, rng)
     }
@@ -225,20 +248,25 @@ where
         &self,
         v: Vec<SymbolTableEntryId>,
         rng: &mut R,
-    ) -> Vec<SymbolTableEntryId> {
+    ) -> Result<Vec<SymbolTableEntryId>, GenerationError> {
         let start_id = self.start_symbol_id();
         self.continue_prediction(&self.rev_transition_table, start_id, v, rng)
     }
 
-    pub fn generate<R: Rng>(&self, n: usize, rng: &mut R, renderer: &impl Renderer) -> Vec<String> {
+    pub fn generate<R: Rng>(
+        &self,
+        n: usize,
+        rng: &mut R,
+        renderer: &impl Renderer,
+    ) -> Result<Vec<String>, GenerationError> {
         // Generate an initial vector.
         let mut result = Vec::<String>::with_capacity(n);
         for _i in 0..n {
             let v = self.generate_initial_vector();
-            let v = self.continue_fwd_prediction(v, rng);
+            let v = self.continue_fwd_prediction(v, rng)?;
             result.push(renderer.render(self.body(&v)).unwrap())
         }
-        result
+        Ok(result)
     }
 
     pub fn generate_with_prefix<R: Rng>(
@@ -247,7 +275,7 @@ where
         n: usize,
         rng: &mut R,
         renderer: &impl Renderer,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, GenerationError> {
         let mut result = Vec::<String>::with_capacity(n);
 
         // Generate all possible symbolifications of the prefix
@@ -256,13 +284,13 @@ where
 
         for _i in 0..n {
             // Choose one of the prefixes
-            let chosen_prefix = sampler.sample_next_symbol(rng);
+            let chosen_prefix = sampler.sample_next_symbol(rng).unwrap();
 
             // Generate using that symbolified prefix
-            let v = self.continue_fwd_prediction(chosen_prefix, rng);
+            let v = self.continue_fwd_prediction(chosen_prefix, rng)?;
             result.push(renderer.render(self.body(&v)).unwrap())
         }
-        result
+        Ok(result)
     }
 
     pub fn generate_with_suffix<R: Rng>(
@@ -271,7 +299,7 @@ where
         n: usize,
         rng: &mut R,
         renderer: &impl Renderer,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, GenerationError> {
         let mut result = Vec::<String>::with_capacity(n);
 
         // Generate all possible symbolifications of the suffix
@@ -281,10 +309,10 @@ where
 
         for _i in 0..n {
             // Choose one of the suffixes
-            let chosen_suffix = sampler.sample_next_symbol(rng);
+            let chosen_suffix = sampler.sample_next_symbol(rng).unwrap();
 
             // Generate using that symbolified prefix
-            let v = self.continue_bwd_prediction(chosen_suffix, rng);
+            let v = self.continue_bwd_prediction(chosen_suffix, rng)?;
 
             // Need to reverse v before we render it.
             let mut v = self.body(&v).to_vec();
@@ -292,7 +320,7 @@ where
             result.push(renderer.render(&v).unwrap())
         }
 
-        result
+        Ok(result)
     }
 
     pub fn generate_with_prefix_and_suffix<R: Rng>(
@@ -302,7 +330,7 @@ where
         n: usize,
         rng: &mut R,
         renderer: &impl Renderer,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, GenerationError> {
         // TOOD: Should we add weights to any of the samplers to get a better result?
         let mut result = Vec::<String>::with_capacity(n);
 
@@ -316,9 +344,16 @@ where
         let mut fwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(n_gen);
 
         for _i in 0..n_gen {
-            let chosen_prefix = prefix_sampler.sample_next_symbol(rng);
+            let chosen_prefix = prefix_sampler.sample_next_symbol(rng).unwrap();
             let prefix_length = chosen_prefix.len();
-            let completed_fwd = self.continue_fwd_prediction(chosen_prefix, rng);
+            let completed_fwd = self
+                .continue_fwd_prediction(chosen_prefix, rng)
+                .map_err(|e| {
+                    GenerationError::generic_error(format!(
+                        "Unable to generate continuation of prefix '{}' - {:?}",
+                        prefix_str, e
+                    ))
+                })?;
             fwd_completions.push((prefix_length, completed_fwd));
         }
 
@@ -343,9 +378,16 @@ where
         let mut bwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(n_gen);
 
         for _i in 0..n_gen {
-            let chosen_suffix = suffix_sampler.sample_next_symbol(rng);
+            let chosen_suffix = suffix_sampler.sample_next_symbol(rng).unwrap();
             let suffix_length = chosen_suffix.len();
-            let mut completed_bwd = self.continue_bwd_prediction(chosen_suffix, rng);
+            let mut completed_bwd =
+                self.continue_bwd_prediction(chosen_suffix, rng)
+                    .map_err(|e| {
+                        GenerationError::generic_error(format!(
+                            "Unable to generate backward continuation of suffix '{}' - {:?}",
+                            suffix_str, e
+                        ))
+                    })?;
             completed_bwd.reverse();
             bwd_completions.push((suffix_length, completed_bwd));
         }
@@ -385,17 +427,17 @@ where
                 splice_point_sampler.add_symbol(*sp)
             }
 
-            let splice_point = splice_point_sampler.sample_next_symbol(rng);
+            let splice_point = splice_point_sampler.sample_next_symbol(rng).unwrap();
             // println!("picked splice_point={:?}", self.symbol_table.render(splice_point) );
 
             // Pick a prefix for that key
             let fwd_part_sampler = fwd_part_samplers.get(splice_point).unwrap();
-            let prefix = fwd_part_sampler.sample_next_symbol(rng);
+            let prefix = fwd_part_sampler.sample_next_symbol(rng).unwrap();
             // println!("picked prefix u={}, v={}", prefix.0, self.symbol_table.render(prefix.1) );
 
             // Pick a suffix for that key
             let bwd_part_sampler = bwd_part_samplers.get(splice_point).unwrap();
-            let suffix = bwd_part_sampler.sample_next_symbol(rng);
+            let suffix = bwd_part_sampler.sample_next_symbol(rng).unwrap();
             // println!("picked suffix u={}, v={}", suffix.0, self.symbol_table.render(suffix.1) );
 
             // Join it all together
@@ -414,7 +456,7 @@ where
             result.push(text);
         }
 
-        result
+        Ok(result)
     }
 }
 
@@ -572,7 +614,7 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate(1, &mut rng, &renderer)[0].clone();
+        let m: String = g.generate(1, &mut rng, &renderer).unwrap()[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -585,7 +627,7 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate(1, &mut rng, &renderer)[0].clone();
+        let m: String = g.generate(1, &mut rng, &renderer).unwrap()[0].clone();
         assert_eq!(m, "word");
     }
 
@@ -598,7 +640,10 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate_with_prefix("hel", 1, &mut rng, &renderer)[0].clone();
+        let m: String = g
+            .generate_with_prefix("hel", 1, &mut rng, &renderer)
+            .unwrap()[0]
+            .clone();
         assert_eq!(m, "hello");
     }
 
@@ -611,7 +656,7 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate_with_prefix("", 1, &mut rng, &renderer)[0].clone();
+        let m: String = g.generate_with_prefix("", 1, &mut rng, &renderer).unwrap()[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -624,7 +669,10 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate_with_suffix("llo", 1, &mut rng, &renderer)[0].clone();
+        let m: String = g
+            .generate_with_suffix("llo", 1, &mut rng, &renderer)
+            .unwrap()[0]
+            .clone();
         assert_eq!(m, "hello");
     }
 
@@ -637,7 +685,7 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate_with_suffix("", 1, &mut rng, &renderer)[0].clone();
+        let m: String = g.generate_with_suffix("", 1, &mut rng, &renderer).unwrap()[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -650,8 +698,10 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String =
-            g.generate_with_prefix_and_suffix("h", "o", 1, &mut rng, &renderer)[0].clone();
+        let m: String = g
+            .generate_with_prefix_and_suffix("h", "o", 1, &mut rng, &renderer)
+            .unwrap()[0]
+            .clone();
         assert_eq!(m, "hello");
     }
 
@@ -666,8 +716,9 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m = g.generate_with_prefix_and_suffix(prefix, suffix, 10, &mut rng, &renderer);
-
+        let m = g
+            .generate_with_prefix_and_suffix(prefix, suffix, 10, &mut rng, &renderer)
+            .unwrap();
         for v in m {
             assert!(
                 v.starts_with(prefix) && v.ends_with(suffix),

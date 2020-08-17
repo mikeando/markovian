@@ -40,7 +40,7 @@ impl MarkovModel {
         std::iter::repeat(Symbol::Start).take(self.order).collect()
     }
 
-    pub fn sample_next_symbol<R: Rng>(&self, context: &[Symbol], rng: &mut R) -> Symbol {
+    pub fn sample_next_symbol<R: Rng>(&self, context: &[Symbol], rng: &mut R) -> Option<Symbol> {
         for i in 0..context.len() {
             let weights = self.contexts.get(&context[i..]);
             if let Some(ws) = weights {
@@ -99,14 +99,15 @@ impl MarkovModel {
         //Handle the rest
         loop {
             let s = self.sample_next_symbol(&context, rng);
-            match &s {
-                Symbol::End => break,
-                Symbol::Start => unimplemented!(),
-                _ => {}
-            }
-            symbols.push(s.clone());
+            let ss = match s {
+                Some(Symbol::End) => break,
+                Some(Symbol::Start) => unimplemented!(),
+                None => unimplemented!(),
+                Some(ss) => ss,
+            };
+            symbols.push(ss.clone());
             context.rotate_left(1);
-            context[n - 1] = s;
+            context[n - 1] = ss;
         }
         symbols
     }

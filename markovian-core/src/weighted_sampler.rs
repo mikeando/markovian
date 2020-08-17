@@ -34,15 +34,18 @@ where
         *self.counts.entry(s).or_insert_with(D::zero) += w;
     }
 
-    pub fn sample_next_symbol<R: Rng>(&self, rng: &mut R) -> T {
+    pub fn sample_next_symbol<R: Rng>(&self, rng: &mut R) -> Option<T> {
+        if self.total == D::zero() {
+            return None;
+        }
         let mut v = rng.gen_range(D::zero(), self.total);
         for (s, c) in self.counts.iter() {
             if v < *c {
-                return s.clone();
+                return Some(s.clone());
             }
             v -= *c;
         }
-        unreachable!();
+        None
     }
 }
 

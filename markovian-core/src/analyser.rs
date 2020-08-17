@@ -34,7 +34,7 @@ where
 impl<T, Tokenizer> Analyser<T, Tokenizer>
 where
     Tokenizer: WordToToken<T>,
-    T: Eq,
+    T: Eq + Clone,
 {
     //TODO: Should this take ownership of the list of strings too?
     pub fn new(
@@ -125,6 +125,18 @@ where
             .collect();
 
         v.iter().map(|(s, w)| (s.as_slice(), *w)).collect()
+    }
+
+    pub fn concatenate_symbols(
+        &mut self,
+        a: SymbolTableEntryId,
+        b: SymbolTableEntryId,
+    ) -> SymbolTableEntryId {
+        let mut v = Vec::<T>::new();
+        self.symbol_table.append_to_vec(a, &mut v).unwrap();
+        self.symbol_table.append_to_vec(b, &mut v).unwrap();
+        let symbol_table_entry = SymbolTableEntry::Compound(v);
+        self.symbol_table.add(symbol_table_entry)
     }
 }
 
@@ -240,6 +252,17 @@ impl AnalyserWrapper {
                 start,
                 end,
             }),
+        }
+    }
+
+    pub fn concatenate_symbols(
+        &mut self,
+        a: SymbolTableEntryId,
+        b: SymbolTableEntryId,
+    ) -> SymbolTableEntryId {
+        match self {
+            AnalyserWrapper::Bytes(analyser) => analyser.concatenate_symbols(a, b),
+            AnalyserWrapper::String(analyser) => analyser.concatenate_symbols(a, b),
         }
     }
 }

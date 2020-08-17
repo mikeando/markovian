@@ -15,6 +15,15 @@ pub fn raw_symbolify_word(s: &str) -> Vec<Symbol> {
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Serialize, Deserialize)]
 pub struct SymbolTableEntryId(pub u64);
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+pub enum SymbolTableEntryType {
+    Start,
+    End,
+    Single,
+    Compound,
+    Dead,
+}
+
 // TODO: Is there value in having multiple Start / End symbols
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Serialize, Deserialize)]
 pub enum SymbolTableEntry<T> {
@@ -216,6 +225,7 @@ impl<T> Default for SymbolTable<T> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     InvalidSymbolify,
+    InvalidSymbolType(SymbolTableEntryType),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -358,6 +368,27 @@ impl<T> SymbolTable<T> {
             }
         }
         result
+    }
+}
+
+impl<T> SymbolTable<T>
+where
+    T: Clone,
+{
+    pub fn append_to_vec(&self, a: SymbolTableEntryId, v: &mut Vec<T>) -> Result<()> {
+        match self.get_by_id(a).unwrap() {
+            SymbolTableEntry::Start => Err(Error::InvalidSymbolType(SymbolTableEntryType::Start)),
+            SymbolTableEntry::End => Err(Error::InvalidSymbolType(SymbolTableEntryType::End)),
+            SymbolTableEntry::Single(e) => {
+                v.push(e.clone());
+                Ok(())
+            }
+            SymbolTableEntry::Compound(es) => {
+                v.extend_from_slice(&es);
+                Ok(())
+            }
+            SymbolTableEntry::Dead(_) => Err(Error::InvalidSymbolType(SymbolTableEntryType::Dead)),
+        }
     }
 }
 

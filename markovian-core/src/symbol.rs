@@ -113,7 +113,7 @@ impl<T> SymbolTable<T> {
     }
 
     // Includes dead entries.
-    pub fn len(&self) -> usize {
+    pub fn max_symbol_id(&self) -> usize {
         self.index.len() + 2
     }
 
@@ -439,10 +439,10 @@ impl SymbolTableWrapper {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn max_symbol_id(&self) -> usize {
         match self {
-            SymbolTableWrapper::Bytes(table) => table.len(),
-            SymbolTableWrapper::String(table) => table.len(),
+            SymbolTableWrapper::Bytes(table) => table.max_symbol_id(),
+            SymbolTableWrapper::String(table) => table.max_symbol_id(),
         }
     }
 

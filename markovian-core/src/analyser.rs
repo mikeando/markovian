@@ -71,7 +71,7 @@ where
         // A symboltable guarantees that its symbolids are contiguous and up to
         // symboltable.len()
         // So we can count directly into an array.
-        let mut counts: Vec<f32> = vec![0.0; self.symbol_table.len()];
+        let mut counts: Vec<f32> = vec![0.0; self.symbol_table.max_symbol_id()];
 
         let s = self.get_symbolisations();
         for (_k, v) in s {

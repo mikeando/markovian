@@ -162,7 +162,7 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
     let data = std::fs::read(&cmd.symboltable).unwrap();
     let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
     info!("encoding: {}", symboltable.encoding().encoding_name());
-    info!("n_symbols: {}", symboltable.len());
+    info!("max symbol id: {}", symboltable.max_symbol_id());
 
     let renderer: Box<dyn Renderer> = if cmd.use_symbol_ids {
         Box::new(RendererId {})
@@ -207,7 +207,7 @@ fn command_print(p: &PrintCommand) {
     let data = std::fs::read(&p.input).unwrap();
     let decoded: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
     println!("encoding: {}", decoded.encoding().encoding_name());
-    println!("n_symbols: {}", decoded.len());
+    println!("max symbol id: {}", decoded.max_symbol_id());
 
     match decoded {
         SymbolTableWrapper::Bytes(table) => {
@@ -275,7 +275,7 @@ fn command_generate(g: &GenerateCommand) {
             SymbolTableWrapper::String(symbol_table)
         }
     };
-    println!("found {} symbols", file_data.len());
+    println!("found {} symbols", file_data.max_symbol_id());
 
     let encoded: Vec<u8> = bincode::serialize(&file_data).unwrap();
     std::fs::write(&g.output, &encoded).unwrap();

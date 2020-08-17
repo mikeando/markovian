@@ -558,9 +558,11 @@ mod test {
     }
 
     fn larger_generator() -> Generator<f32> {
-        let values: Vec<String> = std::fs::read_to_string(
-            "/Users/michaelanderson/Code/markovian/resources/boys_names_2940_lc.txt",
-        )
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let values: Vec<String> = std::fs::read_to_string(format!(
+            "{}/../resources/boys_names_2940_lc.txt",
+            manifest_dir
+        ))
         .unwrap()
         .lines()
         .map(|n| n.trim().to_string())

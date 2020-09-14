@@ -396,10 +396,12 @@ where
             fwd_completions.push((prefix_length, completed_fwd));
         }
 
-        let mut fwd_part_samplers: BTreeMap<
-            &[SymbolTableEntryId],
-            WeightedSampler<(usize, &[SymbolTableEntryId]), f32>,
-        > = BTreeMap::new();
+        type StemSampler<'a> = BTreeMap<
+            &'a [SymbolTableEntryId],
+            WeightedSampler<(usize, &'a [SymbolTableEntryId]), f32>,
+        >;
+
+        let mut fwd_part_samplers: StemSampler = BTreeMap::new();
         for (k, v) in &fwd_completions {
             for (i, w) in v[*k..].windows(splice_length).enumerate() {
                 fwd_part_samplers
@@ -431,10 +433,7 @@ where
             bwd_completions.push((suffix_length, completed_bwd));
         }
 
-        let mut bwd_part_samplers: BTreeMap<
-            &[SymbolTableEntryId],
-            WeightedSampler<(usize, &[SymbolTableEntryId]), f32>,
-        > = BTreeMap::new();
+        let mut bwd_part_samplers: StemSampler = BTreeMap::new();
         for (k, v) in &bwd_completions {
             for (i, w) in v[..v.len() - *k].windows(splice_length).enumerate() {
                 bwd_part_samplers.entry(w).or_default().add_symbol((i, v));
@@ -500,7 +499,7 @@ where
 }
 
 pub fn weight_for_symbolification(v: &[SymbolTableEntryId]) -> f32 {
-    return 1.0 / ((v.len() * v.len()) as f32);
+    1.0 / ((v.len() * v.len()) as f32)
 }
 
 // TODO: Error if we can't get at least one symbolification

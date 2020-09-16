@@ -47,6 +47,33 @@ pub enum GeneratorWrapper {
     String(Generator<char, f32>),
 }
 
+pub fn build_generator(
+    symboltable: SymbolTableWrapper,
+    input_tokens: &[String],
+) -> GeneratorWrapper {
+    //Symbolify them (and add prefix-suffix)
+    let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = input_tokens
+        .iter()
+        .flat_map(|s| match &symboltable {
+            SymbolTableWrapper::Bytes(st) => augment_and_symbolify(&st, s.as_bytes()),
+            SymbolTableWrapper::String(st) => {
+                augment_and_symbolify(&st, &s.chars().collect::<Vec<_>>())
+            }
+        })
+        .collect();
+
+    let trigrams = create_trigrams(&symbolified_values);
+
+    match symboltable {
+        SymbolTableWrapper::Bytes(st) => {
+            GeneratorWrapper::Bytes(Generator::from_trigrams(st, trigrams))
+        }
+        SymbolTableWrapper::String(st) => {
+            GeneratorWrapper::String(Generator::from_trigrams(st, trigrams))
+        }
+    }
+}
+
 pub fn command_create(cmd: &CreateCommand) {
     println!("Create");
 
@@ -70,27 +97,7 @@ pub fn command_create(cmd: &CreateCommand) {
         .flatten()
         .collect();
 
-    //Symbolify them (and add prefix-suffix)
-    let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = input_tokens
-        .iter()
-        .flat_map(|s| match &symboltable {
-            SymbolTableWrapper::Bytes(st) => augment_and_symbolify(&st, s.as_bytes()),
-            SymbolTableWrapper::String(st) => {
-                augment_and_symbolify(&st, &s.chars().collect::<Vec<_>>())
-            }
-        })
-        .collect();
-
-    let trigrams = create_trigrams(&symbolified_values);
-
-    let generator = match symboltable {
-        SymbolTableWrapper::Bytes(st) => {
-            GeneratorWrapper::Bytes(Generator::from_trigrams(st, trigrams))
-        }
-        SymbolTableWrapper::String(st) => {
-            GeneratorWrapper::String(Generator::from_trigrams(st, trigrams))
-        }
-    };
+    let generator = build_generator(symboltable, &input_tokens);
 
     let encoded: Vec<u8> = bincode::serialize(&generator).unwrap();
     std::fs::write(&cmd.output, &encoded).unwrap();

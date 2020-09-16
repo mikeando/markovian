@@ -4,6 +4,7 @@ use log::{debug, info};
 use structopt::StructOpt;
 
 pub mod generator;
+pub mod simple;
 pub mod symboltable;
 
 #[derive(Debug, StructOpt)]
@@ -21,6 +22,7 @@ struct Opt {
 enum Command {
     SymbolTable(symboltable::Command),
     Generator(generator::Command),
+    Simple(simple::Command),
 }
 
 fn setup_logging(verbose: i32) {
@@ -66,5 +68,6 @@ fn main() {
     match &opt.cmd {
         Command::SymbolTable(st_cmd) => symboltable::run(st_cmd),
         Command::Generator(gen_cmd) => generator::run(gen_cmd),
+        Command::Simple(cmd) => simple::run(cmd),
     }
 }

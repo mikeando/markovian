@@ -23,6 +23,8 @@ enum Command {
     SymbolTable(symboltable::Command),
     Generator(generator::Command),
     Simple(simple::Command),
+    /// Show license information about markovian and the libraries it uses
+    License,
 }
 
 fn setup_logging(verbose: i32) {
@@ -69,5 +71,26 @@ fn main() {
         Command::SymbolTable(st_cmd) => symboltable::run(st_cmd),
         Command::Generator(gen_cmd) => generator::run(gen_cmd),
         Command::Simple(cmd) => simple::run(cmd),
+        Command::License => print_license_info(),
     }
+}
+
+fn print_license_info() {
+    let self_license = include_str!("../../../../LICENSE-MIT");
+    let third = include_str!("../../../../thirdparty.md");
+    println!();
+    println!("----------------------------");
+    println!();
+    println!("markovian is licensed under the MIT licese");
+    println!();
+    println!("{}", self_license);
+    println!();
+    println!("----------------------------");
+    println!();
+    println!("markovian also contains code from many third party sources");
+    println!();
+    println!("{}", third);
+    println!();
+    println!("----------------------------");
+    println!();
 }

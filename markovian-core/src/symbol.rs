@@ -194,17 +194,10 @@ where
 
     // Includes dead entries
     pub fn iter(&self) -> impl Iterator<Item = (SymbolTableEntryId, &SymbolTableEntry<T>)> {
-        vec![
-            (SymbolTableEntryId(0), &SymbolTableEntry::Start),
-            (SymbolTableEntryId(1), &SymbolTableEntry::End),
-        ]
-        .into_iter()
-        .chain(
-            self.index
-                .iter()
-                .enumerate()
-                .map(|(i, v)| (SymbolTableEntryId(i as u64), v)),
-        )
+        self.index
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (SymbolTableEntryId(i as u64), v))
     }
 }
 

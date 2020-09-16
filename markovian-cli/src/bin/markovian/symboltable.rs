@@ -160,8 +160,13 @@ fn command_symbolify(cmd: &SymbolifyCommand) {
         let result = reprs
             .iter()
             .map(|ids| renderer.render(&ids))
-            .collect::<Vec<_>>();
-        println!("{} => {:?}", s, result);
+            .collect::<Result<Vec<_>, _>>();
+        match result {
+            Ok(v) => {
+                println!("{} => {:?}", s, v);
+            }
+            Err(e) => println!("error: {:?} caused {:?}", s, e),
+        }
     }
 }
 

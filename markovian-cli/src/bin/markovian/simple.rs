@@ -6,17 +6,13 @@ use log::info;
 
 use crate::{
     generator::build_generator,
-    generator::GeneratorWrapper,
+    generator::generate_words,
     symboltable::{
         build_symbol_table, improve_symbol_table, table_encoding_from_string,
         ImproveSymbolTableCallbacks,
     },
 };
-use markovian_core::{
-    renderer::RenderChar,
-    renderer::RenderU8,
-    symbol::{SymbolTableWrapper, TableEncoding},
-};
+use markovian_core::symbol::{SymbolTableWrapper, TableEncoding};
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
@@ -33,6 +29,18 @@ pub struct GenerateCommand {
     /// Encoding for table
     #[structopt(short, long, parse(try_from_str = table_encoding_from_string))]
     encoding: TableEncoding,
+
+    /// prefix for generated words
+    #[structopt(long)]
+    prefix: Option<String>,
+
+    /// suffix for generated words
+    #[structopt(long)]
+    suffix: Option<String>,
+
+    /// number of strings to generate
+    #[structopt(long, default_value = "20")]
+    count: usize,
 }
 
 pub fn run(cmd: &Command) {
@@ -112,32 +120,9 @@ fn command_generate(cmd: &GenerateCommand) {
     let generator = build_generator(symbol_table, &input_tokens);
 
     // Finally we generate some words
-    // TODO: This is a duplicate of what is in generator.rs - extract it?
-    let mut rng = rand::thread_rng();
+    let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();
 
-    match generator {
-        // TODO: implement this
-        GeneratorWrapper::Bytes(gen) => {
-            let renderer = RenderU8 {
-                table: &gen.symbol_table,
-                start: b"^",
-                end: b"$",
-            };
-            // TODO: Make this configurable
-            for x in gen.generate(20, &mut rng, &renderer).unwrap() {
-                println!("{}", x);
-            }
-        }
-        GeneratorWrapper::String(gen) => {
-            let renderer = RenderChar {
-                table: &gen.symbol_table,
-                start: "^",
-                end: "$",
-            };
-            // TODO: Make this configurable
-            for x in gen.generate(20, &mut rng, &renderer).unwrap() {
-                println!("{}", x);
-            }
-        }
+    for x in words {
+        println!("{}", x);
     }
 }

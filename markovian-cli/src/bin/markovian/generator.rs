@@ -4,8 +4,10 @@ use std::{borrow::Borrow, path::PathBuf};
 use markovian_core::{
     generator::augment_and_symbolify,
     generator::create_trigrams,
+    generator::GenerationError,
     generator::Generator,
     renderer::RenderChar,
+    renderer::RenderU8,
     symbol::{SymbolTableEntryId, SymbolTableWrapper},
 };
 use structopt::StructOpt;
@@ -116,33 +118,50 @@ pub fn command_create(cmd: &CreateCommand) {
     println!("wrote {} ", cmd.output.display());
 }
 
-fn command_generate(cmd: &GenerateCommand) {
+pub fn generate_words(
+    generator: &GeneratorWrapper,
+    count: usize,
+    prefix: &Option<String>,
+    suffix: &Option<String>,
+) -> Result<Vec<String>, GenerationError> {
     let mut rng = rand::thread_rng();
 
-    // Load the generator
-    let data = std::fs::read(&cmd.generator).unwrap();
-    let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
-
     match generator {
-        GeneratorWrapper::Bytes(_) => println!("BYTES..."),
+        GeneratorWrapper::Bytes(gen) => {
+            let renderer = RenderU8 {
+                table: &gen.symbol_table,
+                start: b"^",
+                end: b"$",
+            };
+            let prefix = prefix.as_ref().map(|s| s.as_bytes());
+            let suffix = suffix.as_ref().map(|s| s.as_bytes());
+            gen.generate_multi(prefix, suffix, count, &mut rng, &renderer)
+        }
         GeneratorWrapper::String(gen) => {
             let renderer = RenderChar {
                 table: &gen.symbol_table,
                 start: "^",
                 end: "$",
             };
-            let prefix = cmd.prefix.as_ref().map(|s| s.chars().collect::<Vec<_>>());
-            let suffix = cmd.suffix.as_ref().map(|s| s.chars().collect::<Vec<_>>());
+            let prefix = prefix.as_ref().map(|s| s.chars().collect::<Vec<_>>());
+            let suffix = suffix.as_ref().map(|s| s.chars().collect::<Vec<_>>());
             let p_temp = prefix.as_ref().map(|s| s.borrow());
             let s_temp = suffix.as_ref().map(|s| s.borrow());
 
-            for x in gen
-                .generate_multi(p_temp, s_temp, cmd.count, &mut rng, &renderer)
-                .unwrap()
-            {
-                println!("{}", x);
-            }
+            gen.generate_multi(p_temp, s_temp, count, &mut rng, &renderer)
         }
+    }
+}
+
+fn command_generate(cmd: &GenerateCommand) {
+    // Load the generator
+    let data = std::fs::read(&cmd.generator).unwrap();
+    let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
+
+    let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();
+
+    for x in words {
+        println!("{}", x);
     }
 }
 

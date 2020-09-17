@@ -26,14 +26,47 @@ There is a build for linux, but it is currently untested - I don't expect any is
 # Simple usage
 
 ```
-$ markovian simple generate --encoding=string resources/Moby_Names_M_lc.txt
+$ markovian simple generate --encoding=string resources/Moby_Names_M_lc.txt --count=5
 stergiramessey
 barnan
 bralph
 jerrel
 jord
-...
 ```
+
+If you only want names starting with "jo" you can use
+
+```
+$ markovian simple generate --encoding=string resources/Moby_Names_M_lc.txt --count=5 --prefix=jo
+jone
+jonathan
+jon
+joshuah
+jostophanis
+```
+
+If you want them ending in "ton" then
+
+```
+$ markovian simple generate --encoding=string resources/Moby_Names_M_lc.txt --count=5 --suffix=ton
+rounton
+elston
+janyatton
+milton
+brocharleton
+```
+
+You can even use both prefix and suffix at the same time, though quality seems to suffer a bit more
+
+```
+$ markovian simple generate --encoding=string resources/Moby_Names_M_lc.txt --count=5 --suffix=ton --prefix=jo
+jonalluigiston
+joakolarleton
+joaquinton
+josideighton
+jonalluilton
+```
+
 
 # How it works
 
@@ -200,8 +233,10 @@ We create the triplet maps / generator file using
 ## Generating words with the generator
 
 ```
-markovian generator generate A.generator 
+markovian generator generate A.generator
 ```
+
+You can add ` --prefix=prefix`, `--suffix=suffix` and `--count=N` to this too.
 
 ## Comparison between amounts of combining
 

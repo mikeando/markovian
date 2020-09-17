@@ -405,7 +405,7 @@ where
         let mut result = Vec::<String>::with_capacity(n);
 
         // TODO: Q. How big does N need to be? Currently it is a completely random guess.
-        let n_gen = (5 * n).max(10);
+        let n_gen = (30 * n).max(10);
         let splice_length = self.context_length() + 1;
 
         // We generate N forward from prefix_str

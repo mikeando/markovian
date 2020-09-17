@@ -235,16 +235,26 @@ where
             })
             .collect();
 
-        let mut min_log_p = 0.0;
-        for (_, logp) in &suffixes_with_log_prob {
-            if *logp < min_log_p {
-                min_log_p = *logp;
-            }
-        }
         let mut sampler = WeightedSampler::<Vec<SymbolTableEntryId>, f32>::new();
-        for (ss, logp) in suffixes_with_log_prob {
-            let w = (logp - min_log_p).exp();
-            sampler.add_symbol_with_weight(ss, w);
+        if suffixes_with_log_prob
+            .iter()
+            .all(|(_k, logp)| *logp == -f32::INFINITY)
+        {
+            // They all have zero weight so we just assume all are equally likely
+            for (ss, _logp) in suffixes_with_log_prob {
+                sampler.add_symbol_with_weight(ss, 1.0);
+            }
+        } else {
+            let mut min_log_p = 0.0;
+            for (_, logp) in &suffixes_with_log_prob {
+                if (*logp < min_log_p) && (*logp > -f32::INFINITY) {
+                    min_log_p = *logp;
+                }
+            }
+            for (ss, logp) in suffixes_with_log_prob {
+                let w = (logp - min_log_p).exp();
+                sampler.add_symbol_with_weight(ss, w);
+            }
         }
         sampler
     }

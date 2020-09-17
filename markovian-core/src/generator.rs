@@ -487,15 +487,14 @@ where
 
         // println!("common_splice_point_keys={:?}", common_splice_point_keys.iter().map( |v| self.symbol_table.render(&v) ).collect::<Vec<_>>());
 
+        let mut splice_point_sampler: WeightedSampler<&[SymbolTableEntryId], f32> =
+            WeightedSampler::new();
+        for sp in &common_splice_point_keys {
+            splice_point_sampler.add_symbol(*sp)
+        }
+
         for _i in 0..n {
             // Pick a splice point key
-
-            let mut splice_point_sampler: WeightedSampler<&[SymbolTableEntryId], f32> =
-                WeightedSampler::new();
-            for sp in &common_splice_point_keys {
-                splice_point_sampler.add_symbol(*sp)
-            }
-
             let splice_point = splice_point_sampler.sample_next_symbol(rng).unwrap();
             // println!("picked splice_point={:?}", self.symbol_table.render(splice_point) );
 
@@ -511,6 +510,8 @@ where
 
             // Join it all together
             // Finally an answer is PREFIX-FWD-SPLICE-BWD-SUFFIX
+            // TODO We should allow the FWD and BWD to be empty
+            // TODO The SPLICE should be able to be part of the PREFIX or suffix
 
             let whole = [
                 &prefix.1[..prefix.0],

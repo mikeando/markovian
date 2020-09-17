@@ -299,6 +299,27 @@ where
         self.continue_prediction(&self.rev_transition_table, start_id, v, rng)
     }
 
+    pub fn generate_multi<R: Rng>(
+        &self,
+        prefix: Option<&[T]>,
+        suffix: Option<&[T]>,
+        n: usize,
+        rng: &mut R,
+        renderer: &impl Renderer,
+    ) -> Result<Vec<String>, GenerationError>
+    where
+        T: std::fmt::Debug, // TODO: Only used for error message - would be nice to remove
+    {
+        match (prefix, suffix) {
+            (None, None) => self.generate(n, rng, renderer),
+            (None, Some(suffix)) => self.generate_with_suffix(suffix, n, rng, renderer),
+            (Some(prefix), None) => self.generate_with_prefix(prefix, n, rng, renderer),
+            (Some(prefix), Some(suffix)) => {
+                self.generate_with_prefix_and_suffix(prefix, suffix, n, rng, renderer)
+            }
+        }
+    }
+
     pub fn generate<R: Rng>(
         &self,
         n: usize,

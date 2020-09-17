@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{borrow::Borrow, path::PathBuf};
 
 use markovian_core::{
     generator::augment_and_symbolify,
@@ -39,6 +39,18 @@ pub struct GenerateCommand {
     /// Generator file to use
     #[structopt(parse(from_os_str))]
     generator: PathBuf,
+
+    /// prefix for generated words
+    #[structopt(long)]
+    prefix: Option<String>,
+
+    /// suffix for generated words
+    #[structopt(long)]
+    suffix: Option<String>,
+
+    /// number of strings to generate
+    #[structopt(long, default_value = "20")]
+    count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,7 +131,15 @@ fn command_generate(cmd: &GenerateCommand) {
                 start: "^",
                 end: "$",
             };
-            for x in gen.generate(20, &mut rng, &renderer).unwrap() {
+            let prefix = cmd.prefix.as_ref().map(|s| s.chars().collect::<Vec<_>>());
+            let suffix = cmd.suffix.as_ref().map(|s| s.chars().collect::<Vec<_>>());
+            let p_temp = prefix.as_ref().map(|s| s.borrow());
+            let s_temp = suffix.as_ref().map(|s| s.borrow());
+
+            for x in gen
+                .generate_multi(p_temp, s_temp, cmd.count, &mut rng, &renderer)
+                .unwrap()
+            {
                 println!("{}", x);
             }
         }

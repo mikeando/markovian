@@ -4,6 +4,7 @@ use crate::{
     num_basic::Field,
     renderer::Renderer,
     symbol::{SymbolTable, SymbolTableEntryId},
+    vecutils::Reversible,
     weighted_sampler::WeightedSampler,
 };
 use rand::Rng;
@@ -23,25 +24,21 @@ impl GenerationError {
     }
 }
 
-pub fn create_trigrams<T, W, D>(words: &[(W, D)]) -> BTreeMap<(T, T, T), D>
+pub fn create_ngrams<T, W, D>(words: &[(W, D)], n: usize) -> BTreeMap<Vec<T>, D>
 where
     D: Field,
     W: AsRef<[T]>,
     T: Clone + Ord,
 {
-    let mut trigrams = BTreeMap::new();
+    assert!(n > 0);
+    let mut ngrams = BTreeMap::new();
     for (s, w) in words {
         let s = s.as_ref();
-        let n = s.len();
-        if n <= 2 {
-            continue;
-        }
-        for i in 0..(n - 2) {
-            let t = (s[i].clone(), s[i + 1].clone(), s[i + 2].clone());
-            *trigrams.entry(t).or_insert_with(D::zero) += *w;
+        for ww in s.windows(n) {
+            *ngrams.entry(ww.to_vec()).or_insert_with(D::zero) += *w;
         }
     }
-    trigrams
+    ngrams
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +46,8 @@ pub struct TransitionTable<T, D>
 where
     T: Ord,
 {
-    weights_table: BTreeMap<(T, T), WeightedSampler<T, D>>,
+    n: usize,
+    weights_table: BTreeMap<Vec<T>, WeightedSampler<T, D>>,
 }
 
 impl<T, D> TransitionTable<T, D>
@@ -57,44 +55,38 @@ where
     T: Ord + Clone,
     D: Field,
 {
-    pub fn new(counts: BTreeMap<(T, T, T), D>) -> TransitionTable<T, D> {
-        let mut weights_table: BTreeMap<(T, T), WeightedSampler<T, D>> = BTreeMap::new();
+    pub fn new(counts: BTreeMap<Vec<T>, D>, n: usize) -> TransitionTable<T, D> {
+        let mut weights_table: BTreeMap<Vec<T>, WeightedSampler<T, D>> = BTreeMap::new();
 
-        for ((a, b, c), w) in counts.into_iter() {
+        for (v, w) in counts.into_iter() {
             weights_table
-                .entry((a, b))
+                .entry(v[0..v.len() - 1].to_vec())
                 .or_default()
-                .add_symbol_with_weight(c, w);
+                .add_symbol_with_weight(v[v.len() - 1].clone(), w);
         }
 
-        TransitionTable { weights_table }
+        TransitionTable { weights_table, n }
     }
 
     pub fn sample<R: Rng>(&self, key: &[T], rng: &mut R) -> Option<T> {
         //TODO: Make this error properly, or accept something such that it can't error like &[T;3]?
-        assert!(key.len() == 2);
-
-        let m = self.weights_table.get(&(key[0].clone(), key[1].clone()))?;
+        assert!(key.len() == self.n - 1);
+        let m = self.weights_table.get(&key.to_vec())?;
         m.sample_next_symbol(rng)
     }
 
     pub fn context_length(&self) -> usize {
-        2
+        self.n - 1
     }
 
     pub fn calculate_logp(&self, v: &[T]) -> f32 {
-        //TODO: Handle the case where v.len() < 2
-        if v.len() < 2 {
-            unimplemented!("Can't handle v < 2");
-        }
         let mut sum_log_p = 0.0;
-        for i in 0..v.len() - 2 {
-            //TODO: Handle unwrap fail!
+        for w in v.windows(self.n) {
             let log_p = self
                 .weights_table
-                .get(&(v[i].clone(), v[i + 1].clone()))
+                .get(&w[0..self.n - 1].to_vec())
                 .unwrap()
-                .logp(&v[i + 2]);
+                .logp(&w[self.n - 1]);
             sum_log_p += log_p;
         }
         sum_log_p
@@ -120,20 +112,18 @@ where
     D: Field,
     T: Ord + Clone,
 {
-    pub fn from_trigrams(
+    pub fn from_ngrams(
         symbol_table: SymbolTable<T>,
-        trigrams: BTreeMap<(SymbolTableEntryId, SymbolTableEntryId, SymbolTableEntryId), D>,
+        ngrams: BTreeMap<Vec<SymbolTableEntryId>, D>,
+        n: usize,
     ) -> Generator<T, D> {
-        let rev_trigrams: BTreeMap<
-            (SymbolTableEntryId, SymbolTableEntryId, SymbolTableEntryId),
-            D,
-        > = trigrams
+        let rev_ngrams: BTreeMap<Vec<SymbolTableEntryId>, D> = ngrams
             .iter()
-            .map(|((a, b, c), w)| ((*c, *b, *a), *w))
+            .map(|(ngram, w)| (ngram.reversed(), *w))
             .collect();
 
-        let transition_table = TransitionTable::new(trigrams);
-        let rev_transition_table = TransitionTable::new(rev_trigrams);
+        let transition_table = TransitionTable::new(ngrams, n);
+        let rev_transition_table = TransitionTable::new(rev_ngrams, n);
         Generator {
             symbol_table,
             transition_table,
@@ -541,14 +531,16 @@ pub fn weight_for_symbolification(v: &[SymbolTableEntryId]) -> f32 {
 pub fn augment_and_symbolify<T>(
     symbol_table: &SymbolTable<T>,
     v: &[T],
+    n: usize,
 ) -> Vec<(Vec<SymbolTableEntryId>, f32)>
 where
     T: Ord + Clone,
 {
+    assert!(n > 1);
     let start_id = symbol_table.start_symbol_id();
     let end_id = symbol_table.end_symbol_id();
     let mut result = Vec::new();
-    let order = 2;
+    let order = n - 1;
     for x in symbol_table.symbolifications(v) {
         let w = weight_for_symbolification(&x);
         let ss: Vec<SymbolTableEntryId> = iter::repeat(start_id)
@@ -588,11 +580,11 @@ mod test {
 
         let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = values
             .iter()
-            .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes()))
+            .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes(), 3))
             .collect();
 
-        let trigrams = create_trigrams(&symbolified_values);
-        Generator::from_trigrams(symbol_table, trigrams)
+        let trigrams = create_ngrams(&symbolified_values, 3);
+        Generator::from_ngrams(symbol_table, trigrams, 3)
     }
 
     fn simple_generator_2() -> Generator<u8, f32> {
@@ -601,11 +593,11 @@ mod test {
 
         let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = values
             .iter()
-            .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes()))
+            .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes(), 3))
             .collect();
 
-        let trigrams = create_trigrams(&symbolified_values);
-        Generator::from_trigrams(symbol_table, trigrams)
+        let trigrams = create_ngrams(&symbolified_values, 3);
+        Generator::from_ngrams(symbol_table, trigrams, 3)
     }
 
     fn larger_generator() -> Generator<u8, f32> {
@@ -622,18 +614,18 @@ mod test {
 
         let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = values
             .iter()
-            .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes()))
+            .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes(), 3))
             .collect();
 
-        let trigrams = create_trigrams(&symbolified_values);
-        Generator::from_trigrams(symbol_table, trigrams)
+        let trigrams = create_ngrams(&symbolified_values, 3);
+        Generator::from_ngrams(symbol_table, trigrams, 3)
     }
 
     #[test]
     pub fn test_augment_and_symbolify_hello() {
         let v = "hello";
         let symbol_table = dumb_u8_symbol_table(&[v]);
-        let s = augment_and_symbolify(&symbol_table, v.as_bytes());
+        let s = augment_and_symbolify(&symbol_table, v.as_bytes(), 3);
         assert_eq!(s.len(), 1);
     }
 

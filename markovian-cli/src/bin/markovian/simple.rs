@@ -41,6 +41,10 @@ pub struct GenerateCommand {
     /// number of strings to generate
     #[structopt(long, default_value = "20")]
     count: usize,
+
+    /// Order of generator to build
+    #[structopt(short, default_value = "3")]
+    n: usize,
 }
 
 pub fn run(cmd: &Command) {
@@ -117,7 +121,7 @@ fn command_generate(cmd: &GenerateCommand) {
     info!("now have {} symbols", symbol_table.max_symbol_id());
 
     // Now we build the transition tables
-    let generator = build_generator(symbol_table, &input_tokens);
+    let generator = build_generator(symbol_table, &input_tokens, cmd.n);
 
     // Finally we generate some words
     let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();

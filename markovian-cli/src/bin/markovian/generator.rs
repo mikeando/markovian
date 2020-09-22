@@ -3,7 +3,7 @@ use std::{borrow::Borrow, path::PathBuf};
 
 use markovian_core::{
     generator::augment_and_symbolify,
-    generator::create_trigrams,
+    generator::create_ngrams,
     generator::GenerationError,
     generator::Generator,
     renderer::RenderChar,
@@ -34,6 +34,10 @@ pub struct CreateCommand {
     /// Output file
     #[structopt(short, long, parse(from_os_str))]
     output: PathBuf,
+
+    /// Order of generator to build
+    #[structopt(short, default_value = "3")]
+    n: usize,
 }
 
 #[derive(Debug, StructOpt)]
@@ -64,26 +68,27 @@ pub enum GeneratorWrapper {
 pub fn build_generator(
     symboltable: SymbolTableWrapper,
     input_tokens: &[String],
+    n: usize,
 ) -> GeneratorWrapper {
     //Symbolify them (and add prefix-suffix)
     let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = input_tokens
         .iter()
         .flat_map(|s| match &symboltable {
-            SymbolTableWrapper::Bytes(st) => augment_and_symbolify(&st, s.as_bytes()),
+            SymbolTableWrapper::Bytes(st) => augment_and_symbolify(&st, s.as_bytes(), n),
             SymbolTableWrapper::String(st) => {
-                augment_and_symbolify(&st, &s.chars().collect::<Vec<_>>())
+                augment_and_symbolify(&st, &s.chars().collect::<Vec<_>>(), n)
             }
         })
         .collect();
 
-    let trigrams = create_trigrams(&symbolified_values);
+    let trigrams = create_ngrams(&symbolified_values, n);
 
     match symboltable {
         SymbolTableWrapper::Bytes(st) => {
-            GeneratorWrapper::Bytes(Generator::from_trigrams(st, trigrams))
+            GeneratorWrapper::Bytes(Generator::from_ngrams(st, trigrams, n))
         }
         SymbolTableWrapper::String(st) => {
-            GeneratorWrapper::String(Generator::from_trigrams(st, trigrams))
+            GeneratorWrapper::String(Generator::from_ngrams(st, trigrams, n))
         }
     }
 }
@@ -111,7 +116,7 @@ pub fn command_create(cmd: &CreateCommand) {
         .flatten()
         .collect();
 
-    let generator = build_generator(symboltable, &input_tokens);
+    let generator = build_generator(symboltable, &input_tokens, cmd.n);
 
     let encoded: Vec<u8> = bincode::serialize(&generator).unwrap();
     std::fs::write(&cmd.output, &encoded).unwrap();

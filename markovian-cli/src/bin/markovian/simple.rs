@@ -49,6 +49,10 @@ pub struct GenerateCommand {
     /// Number of symbol combine steps to perform
     #[structopt(long, default_value = "50")]
     combine_steps: usize,
+
+    /// Where to save the generator
+    #[structopt(long, parse(from_os_str))]
+    save_generator: Option<PathBuf>,
 }
 
 pub fn run(cmd: &Command) {
@@ -130,6 +134,12 @@ fn command_generate(cmd: &GenerateCommand) {
 
     // Now we build the transition tables
     let generator = build_generator(symbol_table, &input_tokens, cmd.n);
+
+    if let Some(save_path) = &cmd.save_generator {
+        let encoded: Vec<u8> = bincode::serialize(&generator).unwrap();
+        std::fs::write(save_path, &encoded).unwrap();
+        info!("wrote {} ", save_path.display());
+    }
 
     // Finally we generate some words
     let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();

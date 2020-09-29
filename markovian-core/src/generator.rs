@@ -85,9 +85,13 @@ where
             let log_p = self
                 .weights_table
                 .get(&w[0..self.n - 1].to_vec())
-                .unwrap()
-                .logp(&w[self.n - 1]);
-            sum_log_p += log_p;
+                .map(|ws| ws.logp(&w[self.n - 1]));
+            match log_p {
+                Some(log_p) => {
+                    sum_log_p += log_p;
+                }
+                None => return -f32::INFINITY,
+            }
         }
         sum_log_p
     }
@@ -362,6 +366,38 @@ where
             .take(self.context_length())
             .chain(prefix.iter().cloned())
             .collect()
+    }
+
+    pub fn log_prob(&self, word: &[T]) -> f32 {
+        let ss_logp = self
+            .symbol_table
+            .symbolifications(word)
+            .into_iter()
+            .map(|w| {
+                let w: Vec<SymbolTableEntryId> = self.augment_prefix(&w);
+                let lp = self.transition_table.calculate_logp(&w);
+                (w, lp)
+            })
+            .filter(|(_w, lp)| *lp > -f32::INFINITY)
+            .collect::<Vec<_>>();
+
+        if ss_logp.is_empty() {
+            // They're all imposable...
+            return -f32::INFINITY;
+        }
+
+        let max_log_p = ss_logp
+            .iter()
+            .map(|(_s, lp)| *lp)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+
+        let mut sump = 0.0;
+        for (_ss, logp) in ss_logp {
+            let w = (logp - max_log_p).exp();
+            sump += w;
+        }
+        max_log_p + sump.ln()
     }
 
     pub fn augment_and_reverse_suffix(

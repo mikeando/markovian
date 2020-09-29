@@ -19,6 +19,9 @@ pub enum Command {
 
     /// Create some new words
     Generate(GenerateCommand),
+
+    /// Print word probabilities
+    Probability(ProbabilityCommand),
 }
 
 #[derive(Debug, StructOpt)]
@@ -59,10 +62,29 @@ pub struct GenerateCommand {
     count: usize,
 }
 
+#[derive(Debug, StructOpt)]
+pub struct ProbabilityCommand {
+    /// Generator file to use
+    #[structopt(parse(from_os_str))]
+    generator: PathBuf,
+
+    /// words to pring probabilities of
+    words: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GeneratorWrapper {
     Bytes(Generator<u8, f32>),
     String(Generator<char, f32>),
+}
+
+impl GeneratorWrapper {
+    pub fn log_prob(&self, word: &str) -> f32 {
+        match &self {
+            GeneratorWrapper::Bytes(gen) => gen.log_prob(word.as_bytes()),
+            GeneratorWrapper::String(gen) => gen.log_prob(&word.chars().collect::<Vec<_>>()),
+        }
+    }
 }
 
 pub fn build_generator(
@@ -170,9 +192,21 @@ fn command_generate(cmd: &GenerateCommand) {
     }
 }
 
+fn command_print_probabilities(cmd: &ProbabilityCommand) {
+    // Load the generator
+    let data = std::fs::read(&cmd.generator).unwrap();
+    let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
+
+    for w in &cmd.words {
+        let lp: f64 = generator.log_prob(w) as f64;
+        println!("{} ln(p)={} p={}", w, lp, lp.exp());
+    }
+}
+
 pub fn run(cmd: &Command) {
     match cmd {
         Command::Create(cmd) => command_create(cmd),
         Command::Generate(cmd) => command_generate(cmd),
+        Command::Probability(cmd) => command_print_probabilities(cmd),
     }
 }

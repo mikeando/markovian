@@ -93,6 +93,10 @@ pub struct ImproveSymbolTableCommand {
     /// Output file
     #[structopt(short, long, parse(from_os_str))]
     output: PathBuf,
+
+    /// Number of symbol combine steps to perform
+    #[structopt(long, default_value = "50")]
+    combine_steps: usize,
 }
 
 pub fn table_encoding_from_string(v: &str) -> Result<TableEncoding, String> {
@@ -384,14 +388,13 @@ pub fn improve_symbol_table<CallBack: ImproveSymbolTableCallbacks>(
     symboltable: SymbolTableWrapper,
     input_tokens: Vec<String>,
     callback: CallBack,
+    n_combine_steps: usize,
 ) -> SymbolTableWrapper {
     let mut analyser = AnalyserWrapper::new(symboltable, input_tokens);
 
     callback.on_init(&analyser);
 
-    // TODO: Make 50 configurable.
-    // TODO: Move these into the analyser and provide callbacks to handle the reporting etc.
-    for _i in 0..50 {
+    for _i in 0..n_combine_steps {
         // Take the commonest bigram and remove it
         let bigram_counts = analyser.get_bigram_counts();
 
@@ -466,7 +469,7 @@ fn command_improve_symbol_table(cmd: &ImproveSymbolTableCommand) {
 
     let callbacks = CommandImproveSymbolTableCallbacks {};
     let symbol_table: SymbolTableWrapper =
-        improve_symbol_table(symboltable, input_tokens, callbacks);
+        improve_symbol_table(symboltable, input_tokens, callbacks, cmd.combine_steps);
     let encoded: Vec<u8> = bincode::serialize(&symbol_table).unwrap();
     std::fs::write(&cmd.output, &encoded).unwrap();
     println!("wrote {} ", cmd.output.display());

@@ -45,6 +45,10 @@ pub struct GenerateCommand {
     /// Order of generator to build
     #[structopt(short, default_value = "3")]
     n: usize,
+
+    /// Number of symbol combine steps to perform
+    #[structopt(long, default_value = "50")]
+    combine_steps: usize,
 }
 
 pub fn run(cmd: &Command) {
@@ -116,8 +120,12 @@ fn command_generate(cmd: &GenerateCommand) {
     // Now we improve the symbol table
     let callbacks = GenerateImproveSymbolTableCallbacks {};
     //TODO: This clone is a bit sad.
-    let symbol_table: SymbolTableWrapper =
-        improve_symbol_table(symbol_table, input_tokens.clone(), callbacks);
+    let symbol_table: SymbolTableWrapper = improve_symbol_table(
+        symbol_table,
+        input_tokens.clone(),
+        callbacks,
+        cmd.combine_steps,
+    );
     info!("now have {} symbols", symbol_table.max_symbol_id());
 
     // Now we build the transition tables

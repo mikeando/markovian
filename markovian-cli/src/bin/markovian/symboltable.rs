@@ -411,7 +411,7 @@ pub fn improve_symbol_table<CallBack: ImproveSymbolTableCallbacks>(
         // cost. This is especially important when working with UTF-8 as bytes.
     }
 
-    callback.on_init(&analyser);
+    callback.on_end(&analyser);
     analyser.get_symbol_table()
 }
 

@@ -4,13 +4,13 @@ use crate::num_basic::Field;
 use rand::Rng;
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WeightedSampler<T, D>
 where
     T: Ord,
 {
     // Why does this need to be a BTreeMap, not just Vec<(T,usize)>?
-    counts: BTreeMap<T, D>,
+    pub counts: BTreeMap<T, D>,
     total: D,
 }
 

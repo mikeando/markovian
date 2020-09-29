@@ -41,7 +41,7 @@ where
     ngrams
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransitionTable<T, D>
 where
     T: Ord,
@@ -93,18 +93,220 @@ where
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyCollection<T> {
+    pub order: usize,
+    pub n_ngrams: usize,
+    pub data: Vec<T>,
+}
+
+impl<T> KeyCollection<T> {
+    fn row(&self, i: usize) -> &[T] {
+        &self.data[i * self.order..(i + 1) * self.order]
+    }
+    fn mut_row(&mut self, i: usize) -> &mut [T] {
+        &mut self.data[i * self.order..(i + 1) * self.order]
+    }
+    fn new(order: usize, n_ngrams: usize, initial_value: T) -> Self
+    where
+        T: Clone,
+    {
+        KeyCollection {
+            order,
+            n_ngrams,
+            data: vec![initial_value; order * n_ngrams],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneratorReprInternal<T, D, ST>
+where
+    T: Ord + Clone,
+    D: Clone,
+{
+    pub symbol_table: SymbolTable<T>,
+    pub prefixes: KeyCollection<ST>,
+    pub prefix_counts: Vec<u32>,
+    pub symbols: Vec<ST>,
+    pub weights: Vec<D>,
+    pub ngram_size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GeneratorRepr<T, D>
+where
+    T: Ord + Clone,
+    D: Clone,
+{
+    GeneratorReprU8(GeneratorReprInternal<T, D, u8>),
+    GeneratorReprU16(GeneratorReprInternal<T, D, u16>),
+    GeneratorReprRaw(GeneratorReprInternal<T, D, SymbolTableEntryId>),
+}
+
 // TODO: This serializes "badly" - there's a lot of redundency
 // it should just be the symbol_table (which tends to be very small)
 // then a list of the symbolid triples + weights. The TTs can be rebuilt from
 // them quickly and easily.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(from = "GeneratorRepr<T,D>")]
+#[serde(into = "GeneratorRepr<T,D>")]
 pub struct Generator<T, D>
 where
     T: Ord + Clone,
+    D: Field,
 {
     pub symbol_table: SymbolTable<T>,
     transition_table: TransitionTable<SymbolTableEntryId, D>,
     rev_transition_table: TransitionTable<SymbolTableEntryId, D>,
+}
+
+impl<T, D, P> From<GeneratorReprInternal<T, D, P>> for Generator<T, D>
+where
+    T: Ord + Clone,
+    D: Field,
+    P: PackedSymbolId + Copy,
+{
+    fn from(repr: GeneratorReprInternal<T, D, P>) -> Self {
+        let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, D> = BTreeMap::new();
+
+        let mut k: usize = 0;
+        let mut key: Vec<SymbolTableEntryId> = vec![SymbolTableEntryId(0); repr.ngram_size];
+        for i in 0..repr.prefixes.n_ngrams {
+            let p = repr.prefixes.row(i);
+            for i in 0..repr.ngram_size - 1 {
+                key[i] = p[i].unpack();
+            }
+            let prefix_count = *repr.prefix_counts.get(i).unwrap();
+            for _j in 0..prefix_count {
+                let s = repr.symbols.get(k).unwrap();
+                let w = repr.weights.get(k).unwrap();
+                key[repr.ngram_size - 1] = s.unpack();
+                ngrams.insert(key.clone(), *w);
+                k += 1;
+            }
+        }
+        Generator::from_ngrams(repr.symbol_table, ngrams, repr.ngram_size)
+    }
+}
+
+impl<T, D> From<GeneratorRepr<T, D>> for Generator<T, D>
+where
+    T: Ord + Clone,
+    D: Field,
+{
+    fn from(repr: GeneratorRepr<T, D>) -> Self {
+        match repr {
+            GeneratorRepr::GeneratorReprU8(r) => Self::from(r),
+            GeneratorRepr::GeneratorReprU16(r) => Self::from(r),
+            GeneratorRepr::GeneratorReprRaw(r) => Self::from(r),
+        }
+    }
+}
+
+pub trait PackedSymbolId {
+    fn default() -> Self;
+    fn pack(v: SymbolTableEntryId) -> Self;
+    fn unpack(self) -> SymbolTableEntryId;
+}
+
+impl PackedSymbolId for u8 {
+    fn default() -> Self {
+        0
+    }
+
+    fn pack(v: SymbolTableEntryId) -> Self {
+        assert!(v.0 <= u8::MAX as u64);
+        v.0 as u8
+    }
+
+    fn unpack(self) -> SymbolTableEntryId {
+        SymbolTableEntryId(self as u64)
+    }
+}
+
+impl PackedSymbolId for u16 {
+    fn default() -> Self {
+        0
+    }
+
+    fn pack(v: SymbolTableEntryId) -> Self {
+        assert!(v.0 <= u16::MAX as u64);
+        v.0 as u16
+    }
+
+    fn unpack(self) -> SymbolTableEntryId {
+        SymbolTableEntryId(self as u64)
+    }
+}
+
+impl PackedSymbolId for SymbolTableEntryId {
+    fn default() -> Self {
+        SymbolTableEntryId(0)
+    }
+
+    fn pack(v: SymbolTableEntryId) -> Self {
+        v
+    }
+
+    fn unpack(self) -> SymbolTableEntryId {
+        self
+    }
+}
+
+impl<T, D, P> Into<GeneratorReprInternal<T, D, P>> for Generator<T, D>
+where
+    T: Ord + Clone,
+    D: Field,
+    P: PackedSymbolId + Clone,
+{
+    fn into(self) -> GeneratorReprInternal<T, D, P> {
+        let n_prefixes: usize = self.transition_table.weights_table.len();
+        let ngram_size: usize = self.transition_table.n;
+        let mut prefixes: KeyCollection<P> =
+            KeyCollection::new(ngram_size - 1, n_prefixes, P::default());
+
+        let mut weights: Vec<D> = Vec::new();
+        let mut symbols: Vec<P> = Vec::new();
+        let mut prefix_counts: Vec<u32> = Vec::new();
+
+        for (i, (k, v)) in self.transition_table.weights_table.iter().enumerate() {
+            let row = prefixes.mut_row(i);
+            for i in 0..row.len() {
+                row[i] = P::pack(k[i]);
+            }
+            prefix_counts.push(v.counts.len() as u32);
+            for (s, w) in &v.counts {
+                weights.push(*w);
+                symbols.push(P::pack(*s));
+            }
+        }
+        GeneratorReprInternal {
+            symbol_table: self.symbol_table,
+            prefixes,
+            prefix_counts,
+            symbols,
+            weights,
+            ngram_size,
+        }
+    }
+}
+
+impl<T, D> Into<GeneratorRepr<T, D>> for Generator<T, D>
+where
+    T: Ord + Clone,
+    D: Field,
+{
+    fn into(self) -> GeneratorRepr<T, D> {
+        let max_symbol_id = self.symbol_table.max_symbol_id();
+        if max_symbol_id <= u8::MAX as usize {
+            GeneratorRepr::GeneratorReprU8(self.into())
+        } else if max_symbol_id <= u16::MAX as usize {
+            GeneratorRepr::GeneratorReprU16(self.into())
+        } else {
+            GeneratorRepr::GeneratorReprRaw(self.into())
+        }
+    }
 }
 
 impl<T, D> Generator<T, D>
@@ -768,5 +970,14 @@ mod test {
                 v,
             );
         }
+    }
+
+    #[test]
+    pub fn serialize_deserialize() {
+        let gen = larger_generator();
+        let s = bincode::serialize(&gen).unwrap();
+        let gen2: Generator<u8, f32> = bincode::deserialize(&s).unwrap();
+
+        assert_eq!(gen, gen2);
     }
 }

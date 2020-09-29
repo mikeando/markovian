@@ -100,7 +100,7 @@ pub struct SymbolTableLite<T> {
     n_dead: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(from = "SymbolTableLite<T>", into = "SymbolTableLite<T>")]
 pub struct SymbolTable<T>
 where

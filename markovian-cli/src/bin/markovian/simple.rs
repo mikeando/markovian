@@ -27,7 +27,7 @@ pub struct GenerateCommand {
     input_files: Vec<PathBuf>,
 
     /// Encoding for table
-    #[structopt(short, long, parse(try_from_str = table_encoding_from_string))]
+    #[structopt(short, long, parse(try_from_str = table_encoding_from_string), default_value="string")]
     encoding: TableEncoding,
 
     /// prefix for generated words

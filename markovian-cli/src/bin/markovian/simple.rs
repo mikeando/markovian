@@ -7,6 +7,7 @@ use log::info;
 use crate::{
     generator::build_generator,
     generator::generate_words,
+    generator::GeneratorWrapper,
     symboltable::{
         build_symbol_table, improve_symbol_table, table_encoding_from_string,
         ImproveSymbolTableCallbacks,
@@ -53,6 +54,10 @@ pub struct GenerateCommand {
     /// Where to save the generator
     #[structopt(long, parse(from_os_str))]
     save_generator: Option<PathBuf>,
+
+    /// Bias to apply to calculated probabilities
+    #[structopt(long)]
+    bias: Option<f32>,
 }
 
 pub fn run(cmd: &Command) {
@@ -134,6 +139,20 @@ fn command_generate(cmd: &GenerateCommand) {
 
     // Now we build the transition tables
     let generator = build_generator(symbol_table, &input_tokens, cmd.n);
+
+    // Apply bias if requested
+    let generator = if let Some(bias) = cmd.bias {
+        match generator {
+            GeneratorWrapper::Bytes(gen) => {
+                GeneratorWrapper::Bytes(gen.map_probabilities(|p| p.powf(bias)))
+            }
+            GeneratorWrapper::String(gen) => {
+                GeneratorWrapper::String(gen.map_probabilities(|p| p.powf(bias)))
+            }
+        }
+    } else {
+        generator
+    };
 
     if let Some(save_path) = &cmd.save_generator {
         let encoded: Vec<u8> = bincode::serialize(&generator).unwrap();

@@ -68,6 +68,18 @@ where
         TransitionTable { weights_table, n }
     }
 
+    pub fn to_ngrams_and_weights(&self) -> (BTreeMap<Vec<T>, D>, usize) {
+        let mut result = BTreeMap::new();
+        for (k, ws) in &self.weights_table {
+            for (s, w) in &ws.counts {
+                let mut v = k.clone();
+                v.push(s.clone());
+                result.insert(v, *w);
+            }
+        }
+        (result, self.n)
+    }
+
     pub fn sample<R: Rng>(&self, key: &[T], rng: &mut R) -> Option<T> {
         //TODO: Make this error properly, or accept something such that it can't error like &[T;3]?
         assert!(key.len() == self.n - 1);
@@ -94,6 +106,25 @@ where
             }
         }
         sum_log_p
+    }
+}
+
+impl<T> TransitionTable<T, f32>
+where
+    T: Ord + Clone,
+{
+    fn map_probabilities<F>(&self, f: F) -> TransitionTable<T, f32>
+    where
+        F: Fn(f32) -> f32 + Copy,
+    {
+        let mut weights_table: BTreeMap<Vec<T>, WeightedSampler<T, f32>> = BTreeMap::new();
+        let n = self.n;
+
+        for (k, v) in &self.weights_table {
+            weights_table.insert(k.clone(), v.map_probabilities(f));
+        }
+
+        TransitionTable { n, weights_table }
     }
 }
 
@@ -760,6 +791,21 @@ where
 
 pub fn weight_for_symbolification(v: &[SymbolTableEntryId]) -> f32 {
     1.0 / ((v.len() * v.len()) as f32)
+}
+
+impl<T> Generator<T, f32>
+where
+    T: Ord + Clone,
+{
+    pub fn map_probabilities<F>(&self, f: F) -> Generator<T, f32>
+    where
+        F: Fn(f32) -> f32 + Copy,
+    {
+        let tt: TransitionTable<SymbolTableEntryId, f32> =
+            self.transition_table.map_probabilities(f);
+        let (ngrams, n) = tt.to_ngrams_and_weights();
+        Generator::from_ngrams(self.symbol_table.clone(), ngrams, n)
+    }
 }
 
 // TODO: Error if we can't get at least one symbolification

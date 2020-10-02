@@ -76,3 +76,36 @@ where
         Self::new()
     }
 }
+
+//TODO: Would be nice for this to be more general than D=f32
+impl<T> WeightedSampler<T, f32>
+where
+    T: Ord + Clone,
+{
+    /// Preserves the totals, but maps the individual probabilities.
+    /// (But reweights them back to the correct sum.)
+    pub fn map_probabilities<F>(&self, f: F) -> WeightedSampler<T, f32>
+    where
+        F: Fn(f32) -> f32,
+    {
+        let original_sum_w = self.total;
+        let mut result_sum_w = 0.0;
+        let mut result = self.clone();
+        for w in result.counts.values_mut() {
+            let new_w = f(*w / original_sum_w);
+            //TODO: Better handling on non-finite values?
+            if new_w > 0.0 {
+                result_sum_w += new_w;
+                *w = new_w;
+            } else {
+                *w = 0.0;
+            }
+        }
+        //TODO: What if original_sum_w is zero or result_sum_w is zero?
+        for w in result.counts.values_mut() {
+            *w *= original_sum_w / result_sum_w;
+        }
+
+        result
+    }
+}

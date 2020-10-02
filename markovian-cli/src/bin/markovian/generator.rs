@@ -22,6 +22,9 @@ pub enum Command {
 
     /// Print word probabilities
     Probability(ProbabilityCommand),
+
+    /// Apply bias to probabilities
+    Bias(BiasCommand),
 }
 
 #[derive(Debug, StructOpt)]
@@ -60,6 +63,10 @@ pub struct GenerateCommand {
     /// number of strings to generate
     #[structopt(long, default_value = "20")]
     count: usize,
+
+    /// Bias to apply to calculated probabilities
+    #[structopt(long)]
+    bias: Option<f32>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -70,6 +77,21 @@ pub struct ProbabilityCommand {
 
     /// words to pring probabilities of
     words: Vec<String>,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct BiasCommand {
+    /// Generator file to use
+    #[structopt(parse(from_os_str))]
+    generator: PathBuf,
+
+    // Power to use
+    #[structopt(long)]
+    power: f32,
+
+    /// Output file
+    #[structopt(short, long, parse(from_os_str))]
+    output: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +207,20 @@ fn command_generate(cmd: &GenerateCommand) {
     let data = std::fs::read(&cmd.generator).unwrap();
     let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
 
+    // Apply bias if requested
+    let generator = if let Some(bias) = cmd.bias {
+        match generator {
+            GeneratorWrapper::Bytes(gen) => {
+                GeneratorWrapper::Bytes(gen.map_probabilities(|p| p.powf(bias)))
+            }
+            GeneratorWrapper::String(gen) => {
+                GeneratorWrapper::String(gen.map_probabilities(|p| p.powf(bias)))
+            }
+        }
+    } else {
+        generator
+    };
+
     let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();
 
     for x in words {
@@ -203,10 +239,30 @@ fn command_print_probabilities(cmd: &ProbabilityCommand) {
     }
 }
 
+fn command_bias(cmd: &BiasCommand) {
+    // Load the generator
+    let data = std::fs::read(&cmd.generator).unwrap();
+    let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
+
+    let gen = match generator {
+        GeneratorWrapper::Bytes(gen) => {
+            GeneratorWrapper::Bytes(gen.map_probabilities(|p| p.powf(cmd.power)))
+        }
+        GeneratorWrapper::String(gen) => {
+            GeneratorWrapper::String(gen.map_probabilities(|p| p.powf(cmd.power)))
+        }
+    };
+
+    let encoded: Vec<u8> = bincode::serialize(&gen).unwrap();
+    std::fs::write(&cmd.output, &encoded).unwrap();
+    println!("wrote {} ", cmd.output.display());
+}
+
 pub fn run(cmd: &Command) {
     match cmd {
         Command::Create(cmd) => command_create(cmd),
         Command::Generate(cmd) => command_generate(cmd),
         Command::Probability(cmd) => command_print_probabilities(cmd),
+        Command::Bias(cmd) => command_bias(cmd),
     }
 }

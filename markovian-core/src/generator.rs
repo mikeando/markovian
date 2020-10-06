@@ -13,7 +13,7 @@ use std::{
     iter,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum GenerationError {
     GenericError(String),
 }
@@ -32,10 +32,13 @@ where
 {
     assert!(n > 0);
     let mut ngrams = BTreeMap::new();
-    for (s, w) in words {
-        let s = s.as_ref();
-        for ww in s.windows(n) {
-            *ngrams.entry(ww.to_vec()).or_insert_with(D::zero) += *w;
+    //TODO: Does the fact that we get n-grams of the form ^^ cause a problem?
+    for nn in 1..=n {
+        for (s, w) in words {
+            let s = s.as_ref();
+            for ww in s.windows(nn) {
+                *ngrams.entry(ww.to_vec()).or_insert_with(D::zero) += *w;
+            }
         }
     }
     ngrams
@@ -80,24 +83,71 @@ where
         (result, self.n)
     }
 
-    pub fn sample<R: Rng>(&self, key: &[T], rng: &mut R) -> Option<T> {
-        //TODO: Make this error properly, or accept something such that it can't error like &[T;3]?
-        assert!(key.len() == self.n - 1);
-        let m = self.weights_table.get(&key.to_vec())?;
-        m.sample_next_symbol(rng)
+    pub fn sample<R: Rng>(&self, key: &[T], katz_coefficient: Option<D>, rng: &mut R) -> Option<T> {
+        match katz_coefficient {
+            Some(katz_coefficient) => {
+                let mut key = key;
+                // Until we get a table with enough weight we shrink our key down.
+                loop {
+                    let m = self.weights_table.get(&key.to_vec());
+
+                    if let Some(m) = m {
+                        if m.total > katz_coefficient {
+                            if let Some(v) = m.sample_next_symbol(rng) {
+                                return Some(v);
+                            }
+                        }
+                    }
+
+                    if key.is_empty() {
+                        return None;
+                    }
+                    key = &key[1..];
+                }
+            }
+            None => {
+                let m = self.weights_table.get(&key.to_vec())?;
+                m.sample_next_symbol(rng)
+            }
+        }
     }
 
     pub fn context_length(&self) -> usize {
         self.n - 1
     }
 
-    pub fn calculate_logp(&self, v: &[T]) -> f32 {
-        let mut sum_log_p = 0.0;
-        for w in v.windows(self.n) {
-            let log_p = self
+    pub fn get_window_logp(&self, w: &[T], katz_coefficient: Option<D>) -> Option<f32> {
+        match katz_coefficient {
+            None => self
                 .weights_table
                 .get(&w[0..self.n - 1].to_vec())
-                .map(|ws| ws.logp(&w[self.n - 1]));
+                .and_then(|ws| ws.logp(&w[self.n - 1])),
+            Some(katz_coefficient) => {
+                let mut prefix = &w[0..self.n - 1];
+                let last = &w[self.n - 1];
+                // Until we get a table with enough weight we shrink our key down.
+                loop {
+                    let m = self.weights_table.get(&prefix.to_vec());
+
+                    if let Some(m) = m {
+                        if m.total > katz_coefficient {
+                            return m.logp(last);
+                        }
+                    }
+
+                    if prefix.is_empty() {
+                        return None;
+                    }
+                    prefix = &prefix[1..];
+                }
+            }
+        }
+    }
+
+    pub fn calculate_logp(&self, v: &[T], katz_coefficient: Option<D>) -> f32 {
+        let mut sum_log_p = 0.0;
+        for w in v.windows(self.n) {
+            let log_p = self.get_window_logp(w, katz_coefficient);
             match log_p {
                 Some(log_p) => {
                     sum_log_p += log_p;
@@ -129,43 +179,112 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyCollection<T> {
-    pub order: usize,
-    pub n_ngrams: usize,
-    pub data: Vec<T>,
+pub struct PackedKeyCollection<T, W>
+where
+    T: PartialEq,
+{
+    pub key_length: usize,
+    pub prefixes: Vec<T>,
+    pub prefix_counts: Vec<usize>,
+    pub last: Vec<T>,
+    pub weights: Vec<W>,
 }
 
-impl<T> KeyCollection<T> {
-    fn row(&self, i: usize) -> &[T] {
-        &self.data[i * self.order..(i + 1) * self.order]
+impl<T, W> PackedKeyCollection<T, W>
+where
+    T: PartialEq + Copy,
+    W: Copy,
+{
+    fn last_prefix(&self) -> Option<&[T]> {
+        let prefix_length = self.key_length - 1;
+        // Note rely on the counts rather than the prefixes
+        // since it is possible to have a key-length of 1
+        // which has a zero-length prefix,
+        // in which case prefixes.len() / (key_length - 1)
+        // gives an error.
+        let n_prefixes = self.prefix_counts.len();
+        if n_prefixes > 0 {
+            let last_prefix_start = (n_prefixes - 1) * prefix_length;
+            let last_prefix_end = n_prefixes * prefix_length;
+            Some(&self.prefixes[last_prefix_start..last_prefix_end])
+        } else {
+            None
+        }
     }
-    fn mut_row(&mut self, i: usize) -> &mut [T] {
-        &mut self.data[i * self.order..(i + 1) * self.order]
+
+    fn add_entry(&mut self, key: &[T], weight: W) {
+        assert_eq!(key.len(), self.key_length);
+
+        let prefix_length = self.key_length - 1;
+
+        let last_prefix = self.last_prefix();
+        let key_prefix = &key[0..prefix_length];
+
+        // If we match the last prefix we need to bump the count
+        // otherwise we need to register a new prefix
+        if last_prefix == Some(&key[0..prefix_length]) {
+            *self.prefix_counts.last_mut().unwrap() += 1;
+        } else {
+            for p in key_prefix {
+                self.prefixes.push(*p);
+            }
+            self.prefix_counts.push(1);
+        }
+
+        // Now we need to add the weight and last part of the key
+        self.weights.push(weight);
+        self.last.push(key[self.key_length - 1]);
     }
-    fn new(order: usize, n_ngrams: usize, initial_value: T) -> Self
+
+    fn new(key_length: usize) -> Self
     where
         T: Clone,
     {
-        KeyCollection {
-            order,
-            n_ngrams,
-            data: vec![initial_value; order * n_ngrams],
+        PackedKeyCollection {
+            key_length,
+            prefixes: vec![],
+            prefix_counts: vec![],
+            last: vec![],
+            weights: vec![],
         }
+    }
+
+    fn unpack(&self) -> Vec<(Vec<T>, W)> {
+        let prefix_length = self.key_length - 1;
+
+        let mut result = vec![];
+        let mut ikey = 0;
+        for prefix_index in 0..self.prefix_counts.len() {
+            let prefix_start = prefix_index * prefix_length;
+            let prefix_end = (prefix_index + 1) * prefix_length;
+            let prefix = &self.prefixes[prefix_start..prefix_end];
+
+            for _i in 0..self.prefix_counts[prefix_index] {
+                let key: Vec<T> = prefix
+                    .iter()
+                    .chain(std::iter::once(&self.last[ikey]))
+                    .cloned()
+                    .collect();
+                let weight = self.weights[ikey];
+                result.push((key, weight));
+                ikey += 1;
+            }
+        }
+
+        result
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneratorReprInternal<T, D, ST>
 where
+    ST: PartialEq,
     T: Ord + Clone,
     D: Clone,
 {
     pub symbol_table: SymbolTable<T>,
-    pub prefixes: KeyCollection<ST>,
-    pub prefix_counts: Vec<u32>,
-    pub symbols: Vec<ST>,
-    pub weights: Vec<D>,
-    pub ngram_size: usize,
+    pub key_collections: BTreeMap<usize, PackedKeyCollection<ST, D>>,
+    pub n: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +296,71 @@ where
     GeneratorReprU8(GeneratorReprInternal<T, D, u8>),
     GeneratorReprU16(GeneratorReprInternal<T, D, u16>),
     GeneratorReprRaw(GeneratorReprInternal<T, D, SymbolTableEntryId>),
+}
+
+#[derive(Debug)]
+pub struct WeightRange {
+    pub min_weight: f32,
+    pub max_weight: f32,
+    pub mean_weight: f32,
+    pub count: usize,
+}
+
+impl WeightRange {
+    pub fn update(&mut self, w: f32) {
+        if w < self.min_weight {
+            self.min_weight = w;
+        }
+        if w > self.max_weight {
+            self.max_weight = w;
+        }
+        let mut sum = self.mean_weight * (self.count as f32);
+        sum += w;
+        self.count += 1;
+        self.mean_weight = sum / (self.count as f32);
+    }
+
+    pub fn new(w: f32) -> WeightRange {
+        WeightRange {
+            min_weight: w,
+            max_weight: w,
+            mean_weight: w,
+            count: 1,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GeneratorInfo {
+    pub ngram_weights_by_length: BTreeMap<usize, WeightRange>,
+    pub prefix_weights_by_length: BTreeMap<usize, WeightRange>,
+}
+
+impl GeneratorInfo {
+    pub fn add_ngram_weight(&mut self, key_length: usize, w: f32) {
+        self.ngram_weights_by_length
+            .entry(key_length)
+            .and_modify(|wr| wr.update(w))
+            .or_insert_with(|| WeightRange::new(w));
+    }
+    pub fn add_prefix_weight(&mut self, key_length: usize, w: f32) {
+        self.prefix_weights_by_length
+            .entry(key_length)
+            .and_modify(|wr| wr.update(w))
+            .or_insert_with(|| WeightRange::new(w));
+    }
+    pub fn new() -> GeneratorInfo {
+        GeneratorInfo {
+            ngram_weights_by_length: BTreeMap::new(),
+            prefix_weights_by_length: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for GeneratorInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // TODO: This serializes "badly" - there's a lot of redundency
@@ -200,28 +384,17 @@ impl<T, D, P> From<GeneratorReprInternal<T, D, P>> for Generator<T, D>
 where
     T: Ord + Clone,
     D: Field,
-    P: PackedSymbolId + Copy,
+    P: PackedSymbolId + Copy + PartialEq,
 {
     fn from(repr: GeneratorReprInternal<T, D, P>) -> Self {
         let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, D> = BTreeMap::new();
-
-        let mut k: usize = 0;
-        let mut key: Vec<SymbolTableEntryId> = vec![SymbolTableEntryId(0); repr.ngram_size];
-        for i in 0..repr.prefixes.n_ngrams {
-            let p = repr.prefixes.row(i);
-            for i in 0..repr.ngram_size - 1 {
-                key[i] = p[i].unpack();
-            }
-            let prefix_count = *repr.prefix_counts.get(i).unwrap();
-            for _j in 0..prefix_count {
-                let s = repr.symbols.get(k).unwrap();
-                let w = repr.weights.get(k).unwrap();
-                key[repr.ngram_size - 1] = s.unpack();
-                ngrams.insert(key.clone(), *w);
-                k += 1;
+        for (_key_size, packed_keys) in repr.key_collections {
+            for (k, w) in packed_keys.unpack() {
+                let kk = k.into_iter().map(|k| k.unpack()).collect();
+                ngrams.insert(kk, w);
             }
         }
-        Generator::from_ngrams(repr.symbol_table, ngrams, repr.ngram_size)
+        Generator::from_ngrams(repr.symbol_table, ngrams, repr.n)
     }
 }
 
@@ -293,36 +466,24 @@ impl<T, D, P> Into<GeneratorReprInternal<T, D, P>> for Generator<T, D>
 where
     T: Ord + Clone,
     D: Field,
-    P: PackedSymbolId + Clone,
+    P: PackedSymbolId + Copy + PartialEq,
 {
     fn into(self) -> GeneratorReprInternal<T, D, P> {
-        let n_prefixes: usize = self.transition_table.weights_table.len();
         let ngram_size: usize = self.transition_table.n;
-        let mut prefixes: KeyCollection<P> =
-            KeyCollection::new(ngram_size - 1, n_prefixes, P::default());
+        let mut key_collections: BTreeMap<usize, PackedKeyCollection<P, D>> = BTreeMap::new();
 
-        let mut weights: Vec<D> = Vec::new();
-        let mut symbols: Vec<P> = Vec::new();
-        let mut prefix_counts: Vec<u32> = Vec::new();
-
-        for (i, (k, v)) in self.transition_table.weights_table.iter().enumerate() {
-            let row = prefixes.mut_row(i);
-            for i in 0..row.len() {
-                row[i] = P::pack(k[i]);
-            }
-            prefix_counts.push(v.counts.len() as u32);
-            for (s, w) in &v.counts {
-                weights.push(*w);
-                symbols.push(P::pack(*s));
-            }
+        for (key, weight) in self.transition_table.to_ngrams_and_weights().0 {
+            let key_length = key.len();
+            let packed_key: Vec<_> = key.into_iter().map(P::pack).collect();
+            key_collections
+                .entry(key_length)
+                .or_insert_with(|| PackedKeyCollection::new(key_length))
+                .add_entry(&packed_key, weight);
         }
         GeneratorReprInternal {
             symbol_table: self.symbol_table,
-            prefixes,
-            prefix_counts,
-            symbols,
-            weights,
-            ngram_size,
+            key_collections,
+            n: ngram_size,
         }
     }
 }
@@ -399,14 +560,14 @@ where
             .collect()
     }
 
-    pub fn log_prob(&self, word: &[T]) -> f32 {
+    pub fn log_prob(&self, word: &[T], katz_coefficient: Option<D>) -> f32 {
         let ss_logp = self
             .symbol_table
             .symbolifications(word)
             .into_iter()
             .map(|w| {
                 let w: Vec<SymbolTableEntryId> = self.augment_prefix(&w);
-                let lp = self.transition_table.calculate_logp(&w);
+                let lp = self.transition_table.calculate_logp(&w, katz_coefficient);
                 (w, lp)
             })
             .filter(|(_w, lp)| *lp > -f32::INFINITY)
@@ -443,6 +604,7 @@ where
 
     pub fn build_prefix_sampler(
         &self,
+        katz_coefficient: Option<D>,
         prefix: &[T],
     ) -> WeightedSampler<Vec<SymbolTableEntryId>, f32> {
         let symbolified_prefixes = self.symbol_table.symbolifications_prefix(prefix);
@@ -450,7 +612,7 @@ where
             .iter()
             .map(|prefix| {
                 let w: Vec<SymbolTableEntryId> = self.augment_prefix(prefix);
-                let logp: f32 = self.transition_table.calculate_logp(&w);
+                let logp: f32 = self.transition_table.calculate_logp(&w, katz_coefficient);
 
                 (w, logp)
             })
@@ -480,7 +642,11 @@ where
         sampler
     }
 
-    fn build_suffix_sampler(&self, suffix: &[T]) -> WeightedSampler<Vec<SymbolTableEntryId>, f32> {
+    fn build_suffix_sampler(
+        &self,
+        katz_coefficient: Option<D>,
+        suffix: &[T],
+    ) -> WeightedSampler<Vec<SymbolTableEntryId>, f32> {
         // Generate all possible symbolifications of the suffix
         // Calculate their probabilities and select one.
         // Generate using that symbolified prefix
@@ -489,7 +655,9 @@ where
             .iter()
             .map(|suffix| {
                 let w: Vec<SymbolTableEntryId> = self.augment_and_reverse_suffix(suffix);
-                let logp: f32 = self.rev_transition_table.calculate_logp(&w);
+                let logp: f32 = self
+                    .rev_transition_table
+                    .calculate_logp(&w, katz_coefficient);
                 (w, logp)
             })
             .collect();
@@ -525,10 +693,12 @@ where
         transition_table: &TransitionTable<SymbolTableEntryId, D>,
         terminal: SymbolTableEntryId,
         mut v: Vec<SymbolTableEntryId>,
+        katz_coefficient: Option<D>,
         rng: &mut R,
     ) -> Result<Vec<SymbolTableEntryId>, GenerationError> {
         loop {
-            let next: Option<SymbolTableEntryId> = transition_table.sample(self.key(&v), rng);
+            let next: Option<SymbolTableEntryId> =
+                transition_table.sample(self.key(&v), katz_coefficient, rng);
             let next = next.ok_or_else(|| {
                 GenerationError::generic_error("Unable to find valid continuation")
             })?;
@@ -543,19 +713,27 @@ where
     fn continue_fwd_prediction<R: Rng>(
         &self,
         v: Vec<SymbolTableEntryId>,
+        katz_coefficient: Option<D>,
         rng: &mut R,
     ) -> Result<Vec<SymbolTableEntryId>, GenerationError> {
         let end_id = self.end_symbol_id();
-        self.continue_prediction(&self.transition_table, end_id, v, rng)
+        self.continue_prediction(&self.transition_table, end_id, v, katz_coefficient, rng)
     }
 
     fn continue_bwd_prediction<R: Rng>(
         &self,
         v: Vec<SymbolTableEntryId>,
+        katz_coefficient: Option<D>,
         rng: &mut R,
     ) -> Result<Vec<SymbolTableEntryId>, GenerationError> {
         let start_id = self.start_symbol_id();
-        self.continue_prediction(&self.rev_transition_table, start_id, v, rng)
+        self.continue_prediction(
+            &self.rev_transition_table,
+            start_id,
+            v,
+            katz_coefficient,
+            rng,
+        )
     }
 
     pub fn generate_multi<R: Rng>(
@@ -563,6 +741,7 @@ where
         prefix: Option<&[T]>,
         suffix: Option<&[T]>,
         n: usize,
+        katz_coefficient: Option<D>,
         rng: &mut R,
         renderer: &impl Renderer,
     ) -> Result<Vec<String>, GenerationError>
@@ -570,18 +749,28 @@ where
         T: std::fmt::Debug, // TODO: Only used for error message - would be nice to remove
     {
         match (prefix, suffix) {
-            (None, None) => self.generate(n, rng, renderer),
-            (None, Some(suffix)) => self.generate_with_suffix(suffix, n, rng, renderer),
-            (Some(prefix), None) => self.generate_with_prefix(prefix, n, rng, renderer),
-            (Some(prefix), Some(suffix)) => {
-                self.generate_with_prefix_and_suffix(prefix, suffix, n, rng, renderer)
+            (None, None) => self.generate(n, katz_coefficient, rng, renderer),
+            (None, Some(suffix)) => {
+                self.generate_with_suffix(suffix, n, katz_coefficient, rng, renderer)
             }
+            (Some(prefix), None) => {
+                self.generate_with_prefix(prefix, n, katz_coefficient, rng, renderer)
+            }
+            (Some(prefix), Some(suffix)) => self.generate_with_prefix_and_suffix(
+                prefix,
+                suffix,
+                n,
+                katz_coefficient,
+                rng,
+                renderer,
+            ),
         }
     }
 
     pub fn generate<R: Rng>(
         &self,
         n: usize,
+        katz_coefficient: Option<D>,
         rng: &mut R,
         renderer: &impl Renderer,
     ) -> Result<Vec<String>, GenerationError> {
@@ -589,7 +778,7 @@ where
         let mut result = Vec::<String>::with_capacity(n);
         for _i in 0..n {
             let v = self.generate_initial_vector();
-            let v = self.continue_fwd_prediction(v, rng)?;
+            let v = self.continue_fwd_prediction(v, katz_coefficient, rng)?;
             result.push(renderer.render(self.body(&v)).unwrap())
         }
         Ok(result)
@@ -599,6 +788,7 @@ where
         &self,
         prefix: &[T],
         n: usize,
+        katz_coefficient: Option<D>,
         rng: &mut R,
         renderer: &impl Renderer,
     ) -> Result<Vec<String>, GenerationError> {
@@ -606,14 +796,14 @@ where
 
         // Generate all possible symbolifications of the prefix
         // Calculate their probabilities
-        let sampler = self.build_prefix_sampler(prefix);
+        let sampler = self.build_prefix_sampler(katz_coefficient, prefix);
 
         for _i in 0..n {
             // Choose one of the prefixes
             let chosen_prefix = sampler.sample_next_symbol(rng).unwrap();
 
             // Generate using that symbolified prefix
-            let v = self.continue_fwd_prediction(chosen_prefix, rng)?;
+            let v = self.continue_fwd_prediction(chosen_prefix, katz_coefficient, rng)?;
             result.push(renderer.render(self.body(&v)).unwrap())
         }
         Ok(result)
@@ -623,6 +813,7 @@ where
         &self,
         suffix: &[T],
         n: usize,
+        katz_coefficient: Option<D>,
         rng: &mut R,
         renderer: &impl Renderer,
     ) -> Result<Vec<String>, GenerationError> {
@@ -631,14 +822,14 @@ where
         // Generate all possible symbolifications of the suffix
         // Calculate their probabilities
         // NOTE: This sampler generates the suffix *reversed*
-        let sampler = self.build_suffix_sampler(suffix);
+        let sampler = self.build_suffix_sampler(katz_coefficient, suffix);
 
         for _i in 0..n {
             // Choose one of the suffixes
             let chosen_suffix = sampler.sample_next_symbol(rng).unwrap();
 
             // Generate using that symbolified prefix
-            let v = self.continue_bwd_prediction(chosen_suffix, rng)?;
+            let v = self.continue_bwd_prediction(chosen_suffix, katz_coefficient, rng)?;
 
             // Need to reverse v before we render it.
             let mut v = self.body(&v).to_vec();
@@ -654,6 +845,7 @@ where
         prefix: &[T],
         suffix: &[T],
         n: usize,
+        katz_coefficient: Option<D>,
         rng: &mut R,
         renderer: &impl Renderer,
     ) -> Result<Vec<String>, GenerationError>
@@ -669,14 +861,14 @@ where
 
         // We generate N forward from prefix_str
         // Then store up all the "fwd-splice-points" after prefix
-        let prefix_sampler = self.build_prefix_sampler(prefix);
+        let prefix_sampler = self.build_prefix_sampler(katz_coefficient, prefix);
         let mut fwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(n_gen);
 
         for _i in 0..n_gen {
             let chosen_prefix = prefix_sampler.sample_next_symbol(rng).unwrap();
             let prefix_length = chosen_prefix.len();
             let completed_fwd = self
-                .continue_fwd_prediction(chosen_prefix, rng)
+                .continue_fwd_prediction(chosen_prefix, katz_coefficient, rng)
                 .map_err(|e| {
                     GenerationError::generic_error(format!(
                         "Unable to generate continuation of prefix '{:?}' - {:?}",
@@ -705,20 +897,20 @@ where
 
         // We generate N backward from suffix_str
         // Store up all the bwd-splice-points before suffix
-        let suffix_sampler = self.build_suffix_sampler(suffix);
+        let suffix_sampler = self.build_suffix_sampler(katz_coefficient, suffix);
         let mut bwd_completions = Vec::<(usize, Vec<SymbolTableEntryId>)>::with_capacity(n_gen);
 
         for _i in 0..n_gen {
             let chosen_suffix = suffix_sampler.sample_next_symbol(rng).unwrap();
             let suffix_length = chosen_suffix.len();
-            let mut completed_bwd =
-                self.continue_bwd_prediction(chosen_suffix, rng)
-                    .map_err(|e| {
-                        GenerationError::generic_error(format!(
-                            "Unable to generate backward continuation of suffix '{:?}' - {:?}",
-                            suffix, e
-                        ))
-                    })?;
+            let mut completed_bwd = self
+                .continue_bwd_prediction(chosen_suffix, katz_coefficient, rng)
+                .map_err(|e| {
+                    GenerationError::generic_error(format!(
+                        "Unable to generate backward continuation of suffix '{:?}' - {:?}",
+                        suffix, e
+                    ))
+                })?;
             completed_bwd.reverse();
             bwd_completions.push((suffix_length, completed_bwd));
         }
@@ -805,6 +997,22 @@ where
             self.transition_table.map_probabilities(f);
         let (ngrams, n) = tt.to_ngrams_and_weights();
         Generator::from_ngrams(self.symbol_table.clone(), ngrams, n)
+    }
+}
+
+impl<T> Generator<T, f32>
+where
+    T: Ord + Clone,
+{
+    pub fn get_info(&self) -> GeneratorInfo {
+        let mut info = GeneratorInfo::new();
+        for (k, w) in self.transition_table.to_ngrams_and_weights().0.iter() {
+            info.add_ngram_weight(k.len(), *w);
+        }
+        for (prefix, sampler) in self.transition_table.weights_table.iter() {
+            info.add_prefix_weight(prefix.len(), sampler.total);
+        }
+        info
     }
 }
 
@@ -930,7 +1138,7 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate(1, &mut rng, &renderer).unwrap()[0].clone();
+        let m: String = g.generate(1, None, &mut rng, &renderer).unwrap()[0].clone();
         assert_eq!(m, "hello");
     }
 
@@ -943,7 +1151,7 @@ mod test {
             start: b"^",
             end: b"$",
         };
-        let m: String = g.generate(1, &mut rng, &renderer).unwrap()[0].clone();
+        let m: String = g.generate(1, None, &mut rng, &renderer).unwrap()[0].clone();
         assert_eq!(m, "word");
     }
 
@@ -957,7 +1165,7 @@ mod test {
             end: b"$",
         };
         let m: String = g
-            .generate_with_prefix("hel".as_bytes(), 1, &mut rng, &renderer)
+            .generate_with_prefix("hel".as_bytes(), 1, None, &mut rng, &renderer)
             .unwrap()[0]
             .clone();
         assert_eq!(m, "hello");
@@ -973,7 +1181,7 @@ mod test {
             end: b"$",
         };
         let m: String = g
-            .generate_with_prefix("".as_bytes(), 1, &mut rng, &renderer)
+            .generate_with_prefix("".as_bytes(), 1, None, &mut rng, &renderer)
             .unwrap()[0]
             .clone();
         assert_eq!(m, "hello");
@@ -989,7 +1197,7 @@ mod test {
             end: b"$",
         };
         let m: String = g
-            .generate_with_suffix("llo".as_bytes(), 1, &mut rng, &renderer)
+            .generate_with_suffix("llo".as_bytes(), 1, None, &mut rng, &renderer)
             .unwrap()[0]
             .clone();
         assert_eq!(m, "hello");
@@ -1005,7 +1213,7 @@ mod test {
             end: b"$",
         };
         let m: String = g
-            .generate_with_suffix("".as_bytes(), 1, &mut rng, &renderer)
+            .generate_with_suffix("".as_bytes(), 1, None, &mut rng, &renderer)
             .unwrap()[0]
             .clone();
         assert_eq!(m, "hello");
@@ -1021,7 +1229,14 @@ mod test {
             end: b"$",
         };
         let m: String = g
-            .generate_with_prefix_and_suffix("h".as_bytes(), "o".as_bytes(), 1, &mut rng, &renderer)
+            .generate_with_prefix_and_suffix(
+                "h".as_bytes(),
+                "o".as_bytes(),
+                1,
+                None,
+                &mut rng,
+                &renderer,
+            )
             .unwrap()[0]
             .clone();
         assert_eq!(m, "hello");
@@ -1041,7 +1256,7 @@ mod test {
             end: b"$",
         };
         let m = g
-            .generate_with_prefix_and_suffix(prefix, suffix, 10, &mut rng, &renderer)
+            .generate_with_prefix_and_suffix(prefix, suffix, 10, None, &mut rng, &renderer)
             .unwrap();
         for v in m {
             assert!(
@@ -1055,8 +1270,115 @@ mod test {
     }
 
     #[test]
+    pub fn generate_katz_fallback() {
+        // A very simple generator that will only work using Katz fallback
+        // ^^ -> A
+        // ^A -> A
+        // no AA -> ?
+        // A -> B
+        // AB -> $
+
+        let mut symbol_table: SymbolTable<u8> = SymbolTable::new();
+        let start = symbol_table.add(SymbolTableEntry::Start);
+        let end = symbol_table.add(SymbolTableEntry::End);
+        let a = symbol_table.add(SymbolTableEntry::Single(b'a'));
+        let b = symbol_table.add(SymbolTableEntry::Single(b'b'));
+
+        let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
+        ngrams.insert(vec![start, start, a], 1.0);
+        ngrams.insert(vec![start, a, a], 1.0);
+        ngrams.insert(vec![a, b], 1.0);
+        ngrams.insert(vec![a, b, end], 1.0);
+        let gen = Generator::from_ngrams(symbol_table, ngrams, 3);
+
+        let mut rng = rand::thread_rng();
+        let renderer = RenderU8 {
+            table: &gen.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+
+        let v = gen.generate(1, None, &mut rng, &renderer);
+        assert_eq!(
+            v,
+            Err(GenerationError::GenericError(
+                "Unable to find valid continuation".into()
+            ))
+        );
+
+        let v = gen.generate(1, Some(0.0), &mut rng, &renderer);
+        assert_eq!(v.unwrap()[0], "aab");
+    }
+
+    #[test]
+    pub fn generate_katz_fallback_2() {
+        // A very simple generator that will only work using Katz fallback
+        // ^^ -> A
+        // ^A -> A
+        // reject AA -> C as weight is too low.
+        // A -> B
+        // AB -> $
+
+        let mut symbol_table: SymbolTable<u8> = SymbolTable::new();
+        let start = symbol_table.add(SymbolTableEntry::Start);
+        let end = symbol_table.add(SymbolTableEntry::End);
+        let a = symbol_table.add(SymbolTableEntry::Single(b'a'));
+        let b = symbol_table.add(SymbolTableEntry::Single(b'b'));
+        let c = symbol_table.add(SymbolTableEntry::Single(b'c'));
+
+        let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
+        ngrams.insert(vec![start, start, a], 1.0);
+        ngrams.insert(vec![start, a, a], 1.0);
+        ngrams.insert(vec![a, a, c], 0.1);
+        ngrams.insert(vec![a, b], 1.0);
+        ngrams.insert(vec![a, b, end], 1.0);
+        ngrams.insert(vec![a, c, end], 1.0);
+
+        let gen = Generator::from_ngrams(symbol_table, ngrams, 3);
+
+        let mut rng = rand::thread_rng();
+        let renderer = RenderU8 {
+            table: &gen.symbol_table,
+            start: b"^",
+            end: b"$",
+        };
+
+        // Without Katz we dont reject AAC
+        let v = gen.generate(1, None, &mut rng, &renderer).unwrap()[0].clone();
+        assert_eq!(v, "aac");
+
+        // With low Katz coefficient we dont reject AAC
+        let v = gen.generate(1, Some(0.05), &mut rng, &renderer).unwrap()[0].clone();
+        assert_eq!(v, "aac");
+
+        // With high Katz coefficient we do reject AAC
+        let v = gen.generate(1, Some(0.5), &mut rng, &renderer).unwrap()[0].clone();
+        assert_eq!(v, "aab");
+    }
+
+    #[test]
     pub fn serialize_deserialize() {
         let gen = larger_generator();
+        let s = bincode::serialize(&gen).unwrap();
+        let gen2: Generator<u8, f32> = bincode::deserialize(&s).unwrap();
+
+        assert_eq!(gen, gen2);
+    }
+
+    #[test]
+    pub fn serialize_deserialize_with_katz() {
+        let mut symbol_table: SymbolTable<u8> = SymbolTable::new();
+
+        symbol_table.add(SymbolTableEntry::Start);
+        symbol_table.add(SymbolTableEntry::End);
+        let a = symbol_table.add(SymbolTableEntry::Single(b'a'));
+        let b = symbol_table.add(SymbolTableEntry::Single(b'b'));
+
+        let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
+        ngrams.insert(vec![a, a, a], 1.0);
+        ngrams.insert(vec![a, b], 1.0);
+        let gen = Generator::from_ngrams(symbol_table, ngrams, 3);
+
         let s = bincode::serialize(&gen).unwrap();
         let gen2: Generator<u8, f32> = bincode::deserialize(&s).unwrap();
 

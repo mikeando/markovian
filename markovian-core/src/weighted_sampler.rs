@@ -11,7 +11,7 @@ where
 {
     // Why does this need to be a BTreeMap, not just Vec<(T,usize)>?
     pub counts: BTreeMap<T, D>,
-    total: D,
+    pub total: D,
 }
 
 impl<T, D> WeightedSampler<T, D>
@@ -59,11 +59,10 @@ where
     T: Ord,
     D: Field,
 {
-    pub fn logp(&self, v: &T) -> f32 {
-        match self.counts.get(v) {
-            None => -f32::INFINITY,
-            Some(v) => (v.as_f64() / self.total.as_f64()).ln() as f32,
-        }
+    pub fn logp(&self, v: &T) -> Option<f32> {
+        self.counts
+            .get(v)
+            .map(|v| (v.as_f64() / self.total.as_f64()).ln() as f32)
     }
 }
 

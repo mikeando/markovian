@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     num_basic::Field,
     renderer::Renderer,
-    symbol::{SymbolTable, SymbolTableEntryId},
+    symbol::{shortest_symbolifications, SymbolTable, SymbolTableEntryId},
     vecutils::Reversible,
     weighted_sampler::WeightedSampler,
 };
@@ -1016,6 +1016,80 @@ where
     }
 }
 
+pub trait ToSymbolsAndWeights<T> {
+    fn to_symbols_and_weights(&self, v: &[T]) -> Vec<(Vec<SymbolTableEntryId>, f32)>;
+}
+
+pub struct InverseSquareOfLengthWeigther<'a, T>
+where
+    T: Ord + Clone,
+{
+    symbol_table: &'a SymbolTable<T>,
+}
+
+impl<'a, T> InverseSquareOfLengthWeigther<'a, T>
+where
+    T: Ord + Clone,
+{
+    pub fn new(symbol_table: &'a SymbolTable<T>) -> Self {
+        InverseSquareOfLengthWeigther { symbol_table }
+    }
+}
+
+impl<'a, T> ToSymbolsAndWeights<T> for InverseSquareOfLengthWeigther<'a, T>
+where
+    T: Ord + Clone,
+{
+    fn to_symbols_and_weights(&self, v: &[T]) -> Vec<(Vec<SymbolTableEntryId>, f32)> {
+        let mut result = Vec::new();
+        for x in self.symbol_table.symbolifications(v) {
+            let w = weight_for_symbolification(&x);
+            result.push((x, w));
+        }
+        result
+    }
+}
+
+pub struct ShortestOnlyWeigther<'a, T>
+where
+    T: Ord + Clone,
+{
+    symbol_table: &'a SymbolTable<T>,
+}
+
+impl<'a, T> ShortestOnlyWeigther<'a, T>
+where
+    T: Ord + Clone,
+{
+    pub fn new(symbol_table: &'a SymbolTable<T>) -> Self {
+        ShortestOnlyWeigther { symbol_table }
+    }
+}
+
+impl<'a, T> ToSymbolsAndWeights<T> for ShortestOnlyWeigther<'a, T>
+where
+    T: Ord + Clone,
+{
+    fn to_symbols_and_weights(&self, v: &[T]) -> Vec<(Vec<SymbolTableEntryId>, f32)> {
+        let ss = shortest_symbolifications(self.symbol_table, v);
+        let l = 1.0 / (ss.len() as f32);
+        ss.into_iter().map(|s| (s, l)).collect()
+    }
+}
+
+pub fn add_padding(
+    n: usize,
+    start_id: SymbolTableEntryId,
+    end_id: SymbolTableEntryId,
+    v: Vec<SymbolTableEntryId>,
+) -> Vec<SymbolTableEntryId> {
+    iter::repeat(start_id)
+        .take(n)
+        .chain(v.into_iter())
+        .chain(iter::repeat(end_id).take(n))
+        .collect()
+}
+
 // TODO: Error if we can't get at least one symbolification
 // TODO: Move this into the Symbol table?
 // TODO: Provide weight_for_symbolification as argument.
@@ -1031,19 +1105,12 @@ where
     assert!(n > 1);
     let start_id = symbol_table.start_symbol_id();
     let end_id = symbol_table.end_symbol_id();
-    let mut result = Vec::new();
-    let order = n - 1;
-    for x in symbol_table.symbolifications(v) {
-        let w = weight_for_symbolification(&x);
-        let ss: Vec<SymbolTableEntryId> = iter::repeat(start_id)
-            .take(order)
-            .chain(x.into_iter())
-            .chain(iter::repeat(end_id).take(order))
-            .collect();
-        result.push((ss, w));
-    }
+    let result = InverseSquareOfLengthWeigther::new(symbol_table).to_symbols_and_weights(v);
     let sum_w: f32 = result.iter().map(|(_, w)| w).sum();
-    result.into_iter().map(|(x, w)| (x, w / sum_w)).collect()
+    result
+        .into_iter()
+        .map(|(x, w)| (add_padding(n - 1, start_id, end_id, x), w / sum_w))
+        .collect()
 }
 
 #[cfg(test)]

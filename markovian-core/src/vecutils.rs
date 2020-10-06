@@ -27,3 +27,16 @@ where
         r
     }
 }
+
+pub fn select_by_lowest_value<T, F, V>(s: &[T], f: &F) -> Vec<T>
+where
+    V: Ord,
+    F: Fn(&T) -> V,
+    T: Clone,
+{
+    let min = s.iter().map(f).min();
+    match min {
+        None => vec![],
+        Some(min) => s.iter().filter(|v| f(v) == min).cloned().collect(),
+    }
+}

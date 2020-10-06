@@ -1,7 +1,11 @@
 use crate::{
     renderer::{SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8},
-    symbol::{SymbolTable, SymbolTableEntry, SymbolTableEntryId, SymbolTableWrapper},
+    symbol::{
+        shortest_symbolifications, SymbolTable, SymbolTableEntry, SymbolTableEntryId,
+        SymbolTableWrapper,
+    },
     tombstone::{self, TombstoneList},
+    vecutils::select_by_lowest_value,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -104,30 +108,6 @@ where
     pub symbol_table: SymbolTable<T>,
     tokenizer: Tokenizer,
     a: A2<T>,
-}
-
-pub fn select_by_lowest_value<T, F, V>(s: &[T], f: &F) -> Vec<T>
-where
-    V: Ord,
-    F: Fn(&T) -> V,
-    T: Clone,
-{
-    let min = s.iter().map(f).min();
-    match min {
-        None => vec![],
-        Some(min) => s.iter().filter(|v| f(v) == min).cloned().collect(),
-    }
-}
-
-pub fn shortest_symbolifications<T>(
-    symbol_table: &SymbolTable<T>,
-    v: &[T],
-) -> Vec<Vec<SymbolTableEntryId>>
-where
-    T: Eq + Clone + Ord,
-{
-    let v = symbol_table.symbolifications(v);
-    select_by_lowest_value(&v, &|s: &Vec<SymbolTableEntryId>| s.len())
 }
 
 impl<T, Tokenizer> Analyser<T, Tokenizer>

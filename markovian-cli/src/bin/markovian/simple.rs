@@ -7,6 +7,7 @@ use log::info;
 use crate::{
     generator::build_generator,
     generator::generate_words,
+    generator::BreakerMode,
     generator::GeneratorWrapper,
     symboltable::{
         build_symbol_table, improve_symbol_table, table_encoding_from_string,
@@ -63,6 +64,10 @@ pub struct GenerateCommand {
     /// to use before falling back to a shorter context
     #[structopt(long)]
     katz_coefficient: Option<f32>,
+
+    /// Mode for breaking words into symbols
+    #[structopt(long, possible_values = &BreakerMode::variants(), case_insensitive = true, default_value="ShortestOnly")]
+    breaker_mode: BreakerMode,
 }
 
 pub fn run(cmd: &Command) {
@@ -143,7 +148,7 @@ fn command_generate(cmd: &GenerateCommand) {
     info!("now have {} symbols", symbol_table.max_symbol_id());
 
     // Now we build the transition tables
-    let generator = build_generator(symbol_table, &input_tokens, cmd.n);
+    let generator = build_generator(symbol_table, &cmd.breaker_mode, &input_tokens, cmd.n);
 
     // Apply bias if requested
     let generator = if let Some(bias) = cmd.bias {

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::vecutils::select_by_lowest_value;
+
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Serialize, Deserialize)]
 pub struct SymbolTableEntryId(pub u64);
 
@@ -545,6 +547,17 @@ impl SymbolTable<u8> {
     pub fn symbolifications_suffix_str(&self, v: &str) -> Vec<Vec<SymbolTableEntryId>> {
         self.symbolifications_suffix(v.as_bytes())
     }
+}
+
+pub fn shortest_symbolifications<T>(
+    symbol_table: &SymbolTable<T>,
+    v: &[T],
+) -> Vec<Vec<SymbolTableEntryId>>
+where
+    T: Eq + Clone + Ord,
+{
+    let v = symbol_table.symbolifications(v);
+    select_by_lowest_value(&v, &|s: &Vec<SymbolTableEntryId>| s.len())
 }
 
 #[derive(Debug)]

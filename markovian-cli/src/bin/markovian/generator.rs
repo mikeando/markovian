@@ -2,16 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::{borrow::Borrow, path::PathBuf};
 
 use markovian_core::{
-    generator::augment_and_symbolify,
+    generator::add_padding,
     generator::create_ngrams,
     generator::GenerationError,
     generator::Generator,
+    generator::ToSymbolsAndWeights,
     generator::WeightRange,
+    generator::{InverseSquareOfLengthWeigther, ShortestOnlyWeigther},
     renderer::RenderChar,
     renderer::RenderU8,
     symbol::{SymbolTableEntryId, SymbolTableWrapper},
 };
-use structopt::StructOpt;
+use structopt::{clap::arg_enum, StructOpt};
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
@@ -48,6 +50,10 @@ pub struct CreateCommand {
     /// Order of generator to build
     #[structopt(short, default_value = "3")]
     n: usize,
+
+    /// Mode for breaking words into symbols
+    #[structopt(long, possible_values = &BreakerMode::variants(), case_insensitive = true, default_value="ShortestOnly")]
+    breaker_mode: BreakerMode,
 }
 
 #[derive(Debug, StructOpt)]
@@ -132,23 +138,102 @@ impl GeneratorWrapper {
     }
 }
 
+pub trait XToSymbolsAndWeights {
+    fn to_symbols_and_weights(&self, v: &str) -> Vec<(Vec<SymbolTableEntryId>, f32)>;
+}
+
+struct ViaBytes<W>
+where
+    W: ToSymbolsAndWeights<u8>,
+{
+    w: W,
+}
+
+struct ViaChars<W>
+where
+    W: ToSymbolsAndWeights<char>,
+{
+    w: W,
+}
+
+impl<W> XToSymbolsAndWeights for ViaBytes<W>
+where
+    W: ToSymbolsAndWeights<u8>,
+{
+    fn to_symbols_and_weights(&self, v: &str) -> Vec<(Vec<SymbolTableEntryId>, f32)> {
+        self.w.to_symbols_and_weights(v.as_bytes())
+    }
+}
+
+impl<W> XToSymbolsAndWeights for ViaChars<W>
+where
+    W: ToSymbolsAndWeights<char>,
+{
+    fn to_symbols_and_weights(&self, v: &str) -> Vec<(Vec<SymbolTableEntryId>, f32)> {
+        let ss_copy = v.chars().collect::<Vec<_>>();
+        let ss: &[char] = &ss_copy;
+        self.w.to_symbols_and_weights(ss)
+    }
+}
+
+arg_enum! {
+    #[derive(Debug)]
+    pub enum BreakerMode {
+        ShortestOnly,
+        InverseSquareOfLength,
+    }
+}
+
+pub fn get_word_breaker<'a>(
+    symboltable: &'a SymbolTableWrapper,
+    mode: &BreakerMode,
+) -> Box<dyn XToSymbolsAndWeights + 'a> {
+    match (symboltable, mode) {
+        (SymbolTableWrapper::Bytes(st), BreakerMode::ShortestOnly) => Box::new(ViaBytes {
+            w: ShortestOnlyWeigther::new(st),
+        }),
+        (SymbolTableWrapper::Bytes(st), BreakerMode::InverseSquareOfLength) => Box::new(ViaBytes {
+            w: InverseSquareOfLengthWeigther::new(st),
+        }),
+        (SymbolTableWrapper::String(st), BreakerMode::ShortestOnly) => Box::new(ViaChars {
+            w: ShortestOnlyWeigther::new(st),
+        }),
+        (SymbolTableWrapper::String(st), BreakerMode::InverseSquareOfLength) => {
+            Box::new(ViaChars {
+                w: InverseSquareOfLengthWeigther::new(st),
+            })
+        }
+    }
+}
+
 pub fn build_generator(
     symboltable: SymbolTableWrapper,
+    breaker_mode: &BreakerMode,
     input_tokens: &[String],
     n: usize,
 ) -> GeneratorWrapper {
+    assert!(n > 1);
+
+    let start_id = SymbolTableEntryId(0);
+    let end_id = SymbolTableEntryId(1);
+
+    let breaker = get_word_breaker(&symboltable, breaker_mode);
+
     //Symbolify them (and add prefix-suffix)
     let symbolified_values: Vec<(Vec<SymbolTableEntryId>, f32)> = input_tokens
         .iter()
-        .flat_map(|s| match &symboltable {
-            SymbolTableWrapper::Bytes(st) => augment_and_symbolify(&st, s.as_bytes(), n),
-            SymbolTableWrapper::String(st) => {
-                augment_and_symbolify(&st, &s.chars().collect::<Vec<_>>(), n)
-            }
+        .flat_map(|s| {
+            let ss_and_ws = breaker.to_symbols_and_weights(s);
+            let sum_w: f32 = ss_and_ws.iter().map(|(_, w)| w).sum();
+            ss_and_ws
+                .into_iter()
+                .map(move |(x, w)| (add_padding(n - 1, start_id, end_id, x), w / sum_w))
         })
         .collect();
 
     let trigrams = create_ngrams(&symbolified_values, n);
+
+    drop(breaker);
 
     match symboltable {
         SymbolTableWrapper::Bytes(st) => {
@@ -183,7 +268,7 @@ pub fn command_create(cmd: &CreateCommand) {
         .flatten()
         .collect();
 
-    let generator = build_generator(symboltable, &input_tokens, cmd.n);
+    let generator = build_generator(symboltable, &cmd.breaker_mode, &input_tokens, cmd.n);
 
     let encoded: Vec<u8> = bincode::serialize(&generator).unwrap();
     std::fs::write(&cmd.output, &encoded).unwrap();

@@ -58,6 +58,11 @@ pub struct GenerateCommand {
     /// Bias to apply to calculated probabilities
     #[structopt(long)]
     bias: Option<f32>,
+
+    /// Katz back-off coefficient - minimum weight
+    /// to use before falling back to a shorter context
+    #[structopt(long)]
+    katz_coefficient: Option<f32>,
 }
 
 pub fn run(cmd: &Command) {
@@ -161,7 +166,14 @@ fn command_generate(cmd: &GenerateCommand) {
     }
 
     // Finally we generate some words
-    let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();
+    let words = generate_words(
+        &generator,
+        cmd.count,
+        &cmd.prefix,
+        &cmd.suffix,
+        cmd.katz_coefficient,
+    )
+    .unwrap();
 
     for x in words {
         println!("{}", x);

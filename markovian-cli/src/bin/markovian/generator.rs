@@ -6,6 +6,7 @@ use markovian_core::{
     generator::create_ngrams,
     generator::GenerationError,
     generator::Generator,
+    generator::WeightRange,
     renderer::RenderChar,
     renderer::RenderU8,
     symbol::{SymbolTableEntryId, SymbolTableWrapper},
@@ -25,6 +26,9 @@ pub enum Command {
 
     /// Apply bias to probabilities
     Bias(BiasCommand),
+
+    /// Print information about the generator
+    Info(InfoCommand),
 }
 
 #[derive(Debug, StructOpt)]
@@ -67,6 +71,11 @@ pub struct GenerateCommand {
     /// Bias to apply to calculated probabilities
     #[structopt(long)]
     bias: Option<f32>,
+
+    /// Katz back-off coefficient - minimum weight
+    /// to use before falling back to a shorter context
+    #[structopt(long)]
+    katz_coefficient: Option<f32>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -77,6 +86,11 @@ pub struct ProbabilityCommand {
 
     /// words to pring probabilities of
     words: Vec<String>,
+
+    /// Katz back-off coefficient - minimum weight
+    /// to use before falling back to a shorter context
+    #[structopt(long)]
+    katz_coefficient: Option<f32>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -94,6 +108,13 @@ pub struct BiasCommand {
     output: PathBuf,
 }
 
+#[derive(Debug, StructOpt)]
+pub struct InfoCommand {
+    /// Generator file to use
+    #[structopt(parse(from_os_str))]
+    generator: PathBuf,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GeneratorWrapper {
     Bytes(Generator<u8, f32>),
@@ -101,10 +122,12 @@ pub enum GeneratorWrapper {
 }
 
 impl GeneratorWrapper {
-    pub fn log_prob(&self, word: &str) -> f32 {
+    pub fn log_prob(&self, word: &str, katz_coefficient: Option<f32>) -> f32 {
         match &self {
-            GeneratorWrapper::Bytes(gen) => gen.log_prob(word.as_bytes()),
-            GeneratorWrapper::String(gen) => gen.log_prob(&word.chars().collect::<Vec<_>>()),
+            GeneratorWrapper::Bytes(gen) => gen.log_prob(word.as_bytes(), katz_coefficient),
+            GeneratorWrapper::String(gen) => {
+                gen.log_prob(&word.chars().collect::<Vec<_>>(), katz_coefficient)
+            }
         }
     }
 }
@@ -172,6 +195,7 @@ pub fn generate_words(
     count: usize,
     prefix: &Option<String>,
     suffix: &Option<String>,
+    katz_coefficient: Option<f32>,
 ) -> Result<Vec<String>, GenerationError> {
     let mut rng = rand::thread_rng();
 
@@ -184,7 +208,7 @@ pub fn generate_words(
             };
             let prefix = prefix.as_ref().map(|s| s.as_bytes());
             let suffix = suffix.as_ref().map(|s| s.as_bytes());
-            gen.generate_multi(prefix, suffix, count, &mut rng, &renderer)
+            gen.generate_multi(prefix, suffix, count, katz_coefficient, &mut rng, &renderer)
         }
         GeneratorWrapper::String(gen) => {
             let renderer = RenderChar {
@@ -197,7 +221,7 @@ pub fn generate_words(
             let p_temp = prefix.as_ref().map(|s| s.borrow());
             let s_temp = suffix.as_ref().map(|s| s.borrow());
 
-            gen.generate_multi(p_temp, s_temp, count, &mut rng, &renderer)
+            gen.generate_multi(p_temp, s_temp, count, katz_coefficient, &mut rng, &renderer)
         }
     }
 }
@@ -221,7 +245,14 @@ fn command_generate(cmd: &GenerateCommand) {
         generator
     };
 
-    let words = generate_words(&generator, cmd.count, &cmd.prefix, &cmd.suffix).unwrap();
+    let words = generate_words(
+        &generator,
+        cmd.count,
+        &cmd.prefix,
+        &cmd.suffix,
+        cmd.katz_coefficient,
+    )
+    .unwrap();
 
     for x in words {
         println!("{}", x);
@@ -234,7 +265,7 @@ fn command_print_probabilities(cmd: &ProbabilityCommand) {
     let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
 
     for w in &cmd.words {
-        let lp: f64 = generator.log_prob(w) as f64;
+        let lp: f64 = generator.log_prob(w, cmd.katz_coefficient) as f64;
         println!("{} log10(p)={} p={}", w, lp / (10.0f64).ln(), lp.exp());
     }
 }
@@ -258,11 +289,47 @@ fn command_bias(cmd: &BiasCommand) {
     println!("wrote {} ", cmd.output.display());
 }
 
+fn format_weight_range(w: &WeightRange) -> String {
+    format!(
+        "range: {} -- {}  mean: {}  count: {}",
+        w.min_weight, w.max_weight, w.mean_weight, w.count
+    )
+}
+
+fn print_info<T>(gen: &Generator<T, f32>)
+where
+    T: Ord + Clone,
+{
+    let info = gen.get_info();
+    println!("Prefix totals (Katz Coefficients)");
+    for (k, v) in &info.prefix_weights_by_length {
+        println!("  {} : {}", k, format_weight_range(v));
+    }
+    println!("N-Gram weights");
+    for (k, v) in &info.ngram_weights_by_length {
+        println!("  {} : {:?}", k, format_weight_range(v));
+    }
+}
+
+fn command_info(cmd: &InfoCommand) {
+    // Load the generator
+    let data = std::fs::read(&cmd.generator).unwrap();
+    let generator: GeneratorWrapper = bincode::deserialize(&data).unwrap();
+
+    match generator {
+        GeneratorWrapper::Bytes(gen) => {
+            print_info(&gen);
+        }
+        GeneratorWrapper::String(gen) => print_info(&gen),
+    };
+}
+
 pub fn run(cmd: &Command) {
     match cmd {
         Command::Create(cmd) => command_create(cmd),
         Command::Generate(cmd) => command_generate(cmd),
         Command::Probability(cmd) => command_print_probabilities(cmd),
         Command::Bias(cmd) => command_bias(cmd),
+        Command::Info(cmd) => command_info(cmd),
     }
 }

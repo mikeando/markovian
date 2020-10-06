@@ -235,7 +235,7 @@ fn command_print_probabilities(cmd: &ProbabilityCommand) {
 
     for w in &cmd.words {
         let lp: f64 = generator.log_prob(w) as f64;
-        println!("{} ln(p)={} p={}", w, lp, lp.exp());
+        println!("{} log10(p)={} p={}", w, lp / (10.0f64).ln(), lp.exp());
     }
 }
 

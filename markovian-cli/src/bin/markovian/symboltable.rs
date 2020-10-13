@@ -243,20 +243,9 @@ pub fn build_symbol_table(encoding: &TableEncoding, input_tokens: &[String]) -> 
 
 fn command_generate(g: &GenerateCommand) {
     // TODO: Add potential for transformations and customizable min length, and trimming,
-    let input_tokens: Vec<String> = g
-        .input
-        .iter()
-        .map(|n| {
-            let v: Vec<_> = std::fs::read_to_string(n)
-                .unwrap()
-                .lines()
-                .map(|n| n.trim().to_string())
-                .filter(|s| s.len() >= 3)
-                .collect();
-            v
-        })
-        .flatten()
-        .collect();
+    // Load the text
+    // TODO: options to allow to_lowercase in the lambda
+    let input_tokens: Vec<String> = crate::utils::read_input_lines(&g.input, |s| s);
 
     println!("using {} input strings", input_tokens.len());
 
@@ -274,20 +263,8 @@ fn command_analyse(x: &AnalyseCommand) {
     let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
 
     // Load the text
-    let input_tokens: Vec<String> = x
-        .input_file
-        .iter()
-        .map(|n| {
-            let v: Vec<_> = std::fs::read_to_string(n)
-                .unwrap()
-                .lines()
-                .map(|n| n.trim().to_string())
-                .filter(|s| s.len() >= 3)
-                .collect();
-            v
-        })
-        .flatten()
-        .collect();
+    // TODO: options to allow to_lowercase in the lambda
+    let input_tokens: Vec<String> = crate::utils::read_input_lines(&x.input_file, |s| s);
 
     let analyser = AnalyserWrapper::new(symboltable, input_tokens);
     let symbol_renderer = analyser.get_symbol_renderer("^", "$");
@@ -462,20 +439,8 @@ fn command_improve_symbol_table(cmd: &ImproveSymbolTableCommand) {
     let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
 
     // Load the text
-    let input_tokens: Vec<String> = cmd
-        .input_file
-        .iter()
-        .map(|n| {
-            let v: Vec<_> = std::fs::read_to_string(n)
-                .unwrap()
-                .lines()
-                .map(|n| n.trim().to_string())
-                .filter(|s| s.len() >= 3)
-                .collect();
-            v
-        })
-        .flatten()
-        .collect();
+    // TODO: options to allow to_lowercase in the lambda
+    let input_tokens: Vec<String> = crate::utils::read_input_lines(&cmd.input_file, |s| s);
 
     let callbacks = CommandImproveSymbolTableCallbacks {};
     let symbol_table: SymbolTableWrapper =

@@ -255,20 +255,8 @@ pub fn command_create(cmd: &CreateCommand) {
     let symboltable: SymbolTableWrapper = bincode::deserialize(&data).unwrap();
 
     // Load the text
-    let input_tokens: Vec<String> = cmd
-        .input_file
-        .iter()
-        .map(|n| {
-            let v: Vec<_> = std::fs::read_to_string(n)
-                .unwrap()
-                .lines()
-                .map(|n| n.trim().to_string())
-                .filter(|s| s.len() >= 3)
-                .collect();
-            v
-        })
-        .flatten()
-        .collect();
+    // TODO: options to allow to_lowercase in the lambda
+    let input_tokens: Vec<String> = crate::utils::read_input_lines(&cmd.input_file, |s| s);
 
     let generator = build_generator(symboltable, &cmd.breaker_mode, &input_tokens, cmd.n);
 

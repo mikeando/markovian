@@ -6,6 +6,7 @@ use structopt::StructOpt;
 pub mod generator;
 pub mod simple;
 pub mod symboltable;
+pub mod utils;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "markovian", about = "Markov based name generator.")]

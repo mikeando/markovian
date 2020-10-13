@@ -11,6 +11,7 @@ use crate::symboltable::{
     table_encoding_from_string,
     ImproveSymbolTableCallbacks,
 };
+use crate::utils::read_input_lines;
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
@@ -109,22 +110,9 @@ fn command_generate(cmd: &GenerateCommand) {
         panic!("Need to specify at least one input file");
     }
 
-    //TODO: Extract this as a function as it is reused a lot...
-    // Load the text
-    let input_tokens: Vec<String> = cmd
-        .input_files
-        .iter()
-        .map(|n| {
-            let v: Vec<_> = std::fs::read_to_string(n)
-                .unwrap()
-                .lines()
-                .map(|n| n.trim().to_string())
-                .filter(|s| s.len() >= 3)
-                .collect();
-            v
-        })
-        .flatten()
-        .collect();
+    // TODO: Add options to this to allow lowercasing etc.
+    // let input_tokens = read_input_lines(&cmd.input_files, |s| s.to_lowercase());
+    let input_tokens = read_input_lines(&cmd.input_files, |s| s);
 
     info!("Loaded {} words", input_tokens.len());
 

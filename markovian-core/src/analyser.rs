@@ -24,8 +24,8 @@ struct WordId(tombstone::Token);
 struct A2<T> {
     words: TombstoneList<WordEntry<T>>,
     symbol_to_word_map: BTreeMap<SymbolTableEntryId, BTreeSet<WordId>>,
-    symbol_counts: BTreeMap<SymbolTableEntryId, f64>,
-    bigram_counts: BTreeMap<(SymbolTableEntryId, SymbolTableEntryId), f64>,
+    symbol_counts: BTreeMap<SymbolTableEntryId, (usize, f64)>,
+    bigram_counts: BTreeMap<(SymbolTableEntryId, SymbolTableEntryId), (usize, f64)>,
 }
 
 impl<T> A2<T> {
@@ -45,7 +45,9 @@ impl<T> A2<T> {
         let weight = 1.0 / w.symbolifications.len() as f64;
         for s in &w.symbolifications {
             for ss in s {
-                *self.symbol_counts.entry(*ss).or_insert(0.0) += weight;
+                let e = self.symbol_counts.entry(*ss).or_insert((0, 0.0));
+                e.0 += 1;
+                e.1 += weight;
                 self.symbol_to_word_map.entry(*ss).or_default().insert(id);
             }
             let n = s.len();
@@ -54,16 +56,22 @@ impl<T> A2<T> {
             }
             for i in 0..(n - 1) {
                 let t = (s[i], s[i + 1]);
-                *self.bigram_counts.entry(t).or_insert(0.0) += weight;
+                let e = self.bigram_counts.entry(t).or_insert((0, 0.0));
+                e.0 += 1;
+                e.1 += weight;
             }
-            *self
-                .bigram_counts
-                .entry((SymbolTableEntryId(0), s[0]))
-                .or_insert(0.0) += weight;
-            *self
-                .bigram_counts
-                .entry((s[n - 1], SymbolTableEntryId(1)))
-                .or_insert(0.0) += weight;
+            {
+                let t = (SymbolTableEntryId(0), s[0]);
+                let e = self.bigram_counts.entry(t).or_insert((0, 0.0));
+                e.0 += 1;
+                e.1 += weight;
+            }
+            {
+                let t = (s[n - 1], SymbolTableEntryId(1));
+                let e = self.bigram_counts.entry(t).or_insert((0, 0.0));
+                e.0 += 1;
+                e.1 += weight;
+            }
         }
         id
     }
@@ -73,8 +81,13 @@ impl<T> A2<T> {
         let weight = 1.0 / w.symbolifications.len() as f64;
         for s in &w.symbolifications {
             for ss in s {
-                *self.symbol_counts.entry(*ss).or_insert(0.0) -= weight;
                 self.symbol_to_word_map.entry(*ss).or_default().remove(id);
+                let e = self.symbol_counts.entry(*ss).or_insert((0, 0.0));
+                e.0 -= 1;
+                e.1 -= weight;
+                if e.0 == 0 {
+                    self.symbol_counts.remove(ss);
+                }
             }
             let n = s.len();
             if n <= 1 {
@@ -82,16 +95,31 @@ impl<T> A2<T> {
             }
             for i in 0..(n - 1) {
                 let t = (s[i], s[i + 1]);
-                *self.bigram_counts.entry(t).or_insert(0.0) -= weight;
+                let e = self.bigram_counts.entry(t).or_insert((0, 0.0));
+                e.0 -= 1;
+                e.1 -= weight;
+                if e.0 == 0 {
+                    self.bigram_counts.remove(&t);
+                }
             }
-            *self
-                .bigram_counts
-                .entry((SymbolTableEntryId(0), s[0]))
-                .or_insert(0.0) -= weight;
-            *self
-                .bigram_counts
-                .entry((s[n - 1], SymbolTableEntryId(1)))
-                .or_insert(0.0) -= weight;
+            {
+                let t = (SymbolTableEntryId(0), s[0]);
+                let e = self.bigram_counts.entry(t).or_insert((0, 0.0));
+                e.0 -= 1;
+                e.1 -= weight;
+                if e.0 == 0 {
+                    self.bigram_counts.remove(&t);
+                }
+            }
+            {
+                let t = (s[n - 1], SymbolTableEntryId(1));
+                let e = self.bigram_counts.entry(t).or_insert((0, 0.0));
+                e.0 -= 1;
+                e.1 -= weight;
+                if e.0 == 0 {
+                    self.bigram_counts.remove(&t);
+                }
+            }
         }
         w
     }
@@ -169,11 +197,13 @@ where
             .collect()
     }
 
-    pub fn get_symbol_counts(&self) -> Vec<(SymbolTableEntryId, f64)> {
+    pub fn get_symbol_counts(&self) -> Vec<(SymbolTableEntryId, (usize, f64))> {
         self.a.symbol_counts.iter().map(|(&k, &v)| (k, v)).collect()
     }
 
-    pub fn get_bigram_counts(&self) -> &BTreeMap<(SymbolTableEntryId, SymbolTableEntryId), f64> {
+    pub fn get_bigram_counts(
+        &self,
+    ) -> &BTreeMap<(SymbolTableEntryId, SymbolTableEntryId), (usize, f64)> {
         &self.a.bigram_counts
     }
 
@@ -299,7 +329,9 @@ impl AnalyserWrapper {
         symbol_counts
     }
 
-    pub fn get_bigram_counts(&self) -> &BTreeMap<(SymbolTableEntryId, SymbolTableEntryId), f64> {
+    pub fn get_bigram_counts(
+        &self,
+    ) -> &BTreeMap<(SymbolTableEntryId, SymbolTableEntryId), (usize, f64)> {
         match self {
             AnalyserWrapper::Bytes(v) => v.get_bigram_counts(),
             AnalyserWrapper::String(v) => v.get_bigram_counts(),
@@ -385,8 +417,8 @@ mod tests {
         let tokenizer = CharTokenizer;
 
         let a = Analyser::new(u, tokenizer, wordlist);
-        let v: Vec<(SymbolTableEntryId, f64)> = a.get_symbol_counts();
-        assert_eq!(v, vec![(id_a, 2.0), (id_bb, 1.0),]);
+        let v: Vec<(SymbolTableEntryId, (usize, f64))> = a.get_symbol_counts();
+        assert_eq!(v, vec![(id_a, (2, 2.0)), (id_bb, (1, 1.0)),]);
     }
 
     #[test]
@@ -410,8 +442,8 @@ mod tests {
             vec![("aa", vec![vec![id_aa]]), ("bb", vec![vec![id_bb]])]
         );
 
-        let v: Vec<(SymbolTableEntryId, f64)> = a.get_symbol_counts();
-        assert_eq!(v, vec![(id_a, 0.0), (id_bb, 1.0), (id_aa, 1.0)]);
+        let v: Vec<(SymbolTableEntryId, (usize, f64))> = a.get_symbol_counts();
+        assert_eq!(v, vec![(id_bb, (1, 1.0)), (id_aa, (1, 1.0))]);
     }
 
     #[test]
@@ -437,25 +469,22 @@ mod tests {
             symbolisations[0].1.sorted()
         );
 
-        let v: Vec<(SymbolTableEntryId, f64)> = a
-            .get_symbol_counts()
-            .into_iter()
-            .filter(|(_k, v)| *v != 0.0)
-            .collect();
-        assert_eq!(v, vec![(id_a, 1.0), (id_aa, 1.0)]);
+        let v: Vec<(SymbolTableEntryId, (usize, f64))> =
+            a.get_symbol_counts().into_iter().collect();
+        assert_eq!(v, vec![(id_a, (2, 1.0)), (id_aa, (2, 1.0))]);
 
         let bigrams = a.get_bigram_counts();
 
         eprintln!("bigrams = {:?}", bigrams.iter().collect::<Vec<_>>());
 
         // We have two tokenizations ^ A AA $ and ^ AA A $ both with weights 0.5
-        assert_eq!(bigrams.get(&(id_start, id_a)).cloned(), Some(0.5));
-        assert_eq!(bigrams.get(&(id_a, id_aa)).cloned(), Some(0.5));
-        assert_eq!(bigrams.get(&(id_aa, id_end)).cloned(), Some(0.5));
+        assert_eq!(bigrams.get(&(id_start, id_a)).cloned(), Some((1, 0.5)));
+        assert_eq!(bigrams.get(&(id_a, id_aa)).cloned(), Some((1, 0.5)));
+        assert_eq!(bigrams.get(&(id_aa, id_end)).cloned(), Some((1, 0.5)));
 
-        assert_eq!(bigrams.get(&(id_start, id_aa)).cloned(), Some(0.5));
-        assert_eq!(bigrams.get(&(id_aa, id_a)).cloned(), Some(0.5));
-        assert_eq!(bigrams.get(&(id_a, id_end)).cloned(), Some(0.5));
+        assert_eq!(bigrams.get(&(id_start, id_aa)).cloned(), Some((1, 0.5)));
+        assert_eq!(bigrams.get(&(id_aa, id_a)).cloned(), Some((1, 0.5)));
+        assert_eq!(bigrams.get(&(id_a, id_end)).cloned(), Some((1, 0.5)));
     }
 
     #[test]
@@ -469,14 +498,17 @@ mod tests {
         let tokenizer = ByteTokenizer;
         let a: Analyser<u8, ByteTokenizer> = Analyser::new(u, tokenizer, wordlist);
 
-        assert_eq!(a.get_symbol_counts(), vec![(id_a, 2.0), (id_bb, 1.0)]);
+        assert_eq!(
+            a.get_symbol_counts(),
+            vec![(id_a, (2, 2.0)), (id_bb, (1, 1.0))]
+        );
 
         let bigrams = a.get_bigram_counts();
-        assert_eq!(bigrams.get(&(id_start, id_a)).cloned(), Some(1.0));
-        assert_eq!(bigrams.get(&(id_a, id_a)).cloned(), Some(1.0));
-        assert_eq!(bigrams.get(&(id_a, id_end)).cloned(), Some(1.0));
+        assert_eq!(bigrams.get(&(id_start, id_a)).cloned(), Some((1, 1.0)));
+        assert_eq!(bigrams.get(&(id_a, id_a)).cloned(), Some((1, 1.0)));
+        assert_eq!(bigrams.get(&(id_a, id_end)).cloned(), Some((1, 1.0)));
 
-        assert_eq!(bigrams.get(&(id_start, id_bb)).cloned(), Some(1.0));
-        assert_eq!(bigrams.get(&(id_bb, id_end)).cloned(), Some(1.0));
+        assert_eq!(bigrams.get(&(id_start, id_bb)).cloned(), Some((1, 1.0)));
+        assert_eq!(bigrams.get(&(id_bb, id_end)).cloned(), Some((1, 1.0)));
     }
 }

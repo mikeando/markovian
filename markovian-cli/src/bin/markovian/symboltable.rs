@@ -290,14 +290,14 @@ fn command_analyse(x: &AnalyseCommand) {
     let bigram_counts = analyser.get_bigram_counts();
 
     let mut ordered_bigram_counts = bigram_counts.iter().collect::<Vec<_>>();
-    ordered_bigram_counts.sort_by(|a, b| a.1.total_cmp(b.1));
+    ordered_bigram_counts.sort_by(|a, b| (a.1).1.total_cmp(&(b.1).1));
 
     for (k, c) in ordered_bigram_counts.iter() {
         println!(
             "{}|{} {}",
             symbol_renderer.render(k.0).unwrap(),
             symbol_renderer.render(k.1).unwrap(),
-            c
+            c.1
         )
     }
 }
@@ -330,7 +330,7 @@ fn print_analyser_summary(analyser: &AnalyserWrapper) {
             bigram.0 != SymbolTableEntryId(0) && bigram.1 != SymbolTableEntryId(1)
         })
         .collect::<Vec<_>>();
-    ordered_bigram_counts.sort_by(|a, b| b.1.total_cmp(a.1));
+    ordered_bigram_counts.sort_by(|a, b| (a.1).1.total_cmp(&(b.1).1));
     {
         let symbol_renderer = analyser.get_symbol_renderer("^", "$");
         for (k, c) in ordered_bigram_counts.iter().take(10) {
@@ -338,7 +338,7 @@ fn print_analyser_summary(analyser: &AnalyserWrapper) {
                 "{}|{} {}",
                 symbol_renderer.render(k.0).unwrap(),
                 symbol_renderer.render(k.1).unwrap(),
-                c
+                c.1
             )
         }
     }
@@ -352,7 +352,7 @@ fn print_analyser_summary(analyser: &AnalyserWrapper) {
                 "{}|{} {}",
                 symbol_renderer.render(k.0).unwrap(),
                 symbol_renderer.render(k.1).unwrap(),
-                c
+                c.1
             )
         }
     }
@@ -390,9 +390,9 @@ pub fn improve_symbol_table<CallBack: ImproveSymbolTableCallbacks>(
             .filter(|(bigram, _weight)| {
                 bigram.0 != SymbolTableEntryId(0) && bigram.1 != SymbolTableEntryId(1)
             })
-            .max_by(|a, b| a.1.total_cmp(b.1));
+            .max_by(|a, b| (a.1).1.total_cmp(&(b.1).1));
         let bigram = *q.unwrap().0;
-        let count = *q.unwrap().1;
+        let count = (q.unwrap().1).1;
         let new_symbol = analyser.concatenate_symbols(bigram.0, bigram.1);
         callback.on_iteration_after_merge(&analyser, bigram, count, new_symbol);
 

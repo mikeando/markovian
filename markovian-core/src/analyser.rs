@@ -245,6 +245,25 @@ where
         }
         new_id
     }
+
+    pub fn purge_symbols(&mut self, symbols: &[SymbolTableEntryId]) {
+        let mut words_to_rebuild: BTreeSet<WordId> = BTreeSet::new();
+        for s in symbols {
+            self.symbol_table.remove(*s).unwrap();
+            let words_with_s = self.a.symbol_to_word_map.get(s);
+            if let Some(words_with_s) = words_with_s {
+                for wordid in words_with_s {
+                    words_to_rebuild.insert(*wordid);
+                }
+            }
+        }
+
+        for word_id in &words_to_rebuild {
+            let mut entry = self.a.sub_word(word_id);
+            entry.symbolifications = self.shortest_symbolifications(&entry.word);
+            self.a.add_word(entry);
+        }
+    }
 }
 
 pub struct CharTokenizer;
@@ -372,6 +391,13 @@ impl AnalyserWrapper {
         match self {
             AnalyserWrapper::Bytes(analyser) => analyser.concatenate_symbols(a, b),
             AnalyserWrapper::String(analyser) => analyser.concatenate_symbols(a, b),
+        }
+    }
+
+    pub fn purge_symbols(&mut self, symbols: &[SymbolTableEntryId]) {
+        match self {
+            AnalyserWrapper::Bytes(analyser) => analyser.purge_symbols(symbols),
+            AnalyserWrapper::String(analyser) => analyser.purge_symbols(symbols),
         }
     }
 }

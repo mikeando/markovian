@@ -338,6 +338,13 @@ impl AnalyserWrapper {
         }
     }
 
+    pub fn get_symbol_counts(&self) -> Vec<(SymbolTableEntryId, (usize, f64))> {
+        match self {
+            AnalyserWrapper::Bytes(v) => v.get_symbol_counts(),
+            AnalyserWrapper::String(v) => v.get_symbol_counts(),
+        }
+    }
+
     pub fn get_symbol_renderer<'a>(
         &'a self,
         start: &'a str,

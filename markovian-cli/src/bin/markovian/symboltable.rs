@@ -64,7 +64,7 @@ pub struct SymbolifyCommand {
     input: Vec<String>,
 
     /// Print separator between adjacent symbols
-    /// Note that for u8 data, printing using "symbol_seperator=''"
+    /// Note that for u8 data, printing using "symbol_separator=''"
     /// will give a different result to not specifying anything,
     /// due to unicode handling
     #[structopt(long)]
@@ -117,7 +117,7 @@ pub fn table_encoding_from_string(v: &str) -> Result<TableEncoding, String> {
         return Ok(TableEncoding::String);
     }
     Err(format!(
-        "Unkown table encoding '{}' valid values are 'bytes', 'string'",
+        "Unknown table encoding '{}' valid values are 'bytes', 'string'",
         v
     ))
 }
@@ -356,7 +356,7 @@ fn print_analyser_summary(analyser: &AnalyserWrapper) {
             )
         }
     }
-    //TODO: Sometimes we get bigrams with a negative value on them .. why? (Cancelation errors?)
+    //TODO: Sometimes we get bigrams with a negative value on them .. why? (Cancellation errors?)
 }
 
 pub trait ImproveSymbolTableCallbacks {

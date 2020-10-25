@@ -10,6 +10,7 @@ use crate::symboltable::{
     improve_symbol_table,
     table_encoding_from_string,
     ImproveSymbolTableCallbacks,
+    SymbolTrimmingMode,
 };
 use crate::utils::read_input_lines;
 
@@ -65,6 +66,28 @@ pub struct GenerateCommand {
     /// Mode for breaking words into symbols
     #[structopt(long, possible_values = &BreakerMode::variants(), case_insensitive = true, default_value="ShortestOnly")]
     breaker_mode: BreakerMode,
+
+    /// Weight percent for symbol trimming
+    #[structopt(long)]
+    symbol_trim_percent_weight: Option<f64>,
+
+    /// Min weight for symbol trimming
+    #[structopt(long)]
+    symbol_trim_min_weight: Option<f64>,
+}
+
+impl GenerateCommand {
+    pub fn get_symbol_trim_mode(&self) -> Result<SymbolTrimmingMode, String> {
+        match (self.symbol_trim_min_weight, self.symbol_trim_percent_weight) {
+            (None, None) => Ok(SymbolTrimmingMode::None),
+            (None, Some(w)) => Ok(SymbolTrimmingMode::MaxSumPercent(w)),
+            (Some(w), None) => Ok(SymbolTrimmingMode::MaxWeight(w)),
+            (Some(_), Some(_)) => Err(
+                "Can only specify one of symbol_trim_percent_weight and symbol_trim_min_weight"
+                    .to_string(),
+            ),
+        }
+    }
 }
 
 pub fn run(cmd: &Command) {
@@ -122,12 +145,14 @@ fn command_generate(cmd: &GenerateCommand) {
 
     // Now we improve the symbol table
     let callbacks = GenerateImproveSymbolTableCallbacks {};
+    let symbol_trim_mode = cmd.get_symbol_trim_mode().unwrap();
     //TODO: This clone is a bit sad.
     let symbol_table: SymbolTableWrapper = improve_symbol_table(
         symbol_table,
         input_tokens.clone(),
         callbacks,
         cmd.combine_steps,
+        symbol_trim_mode,
     );
     info!("now have {} symbols", symbol_table.max_symbol_id());
 

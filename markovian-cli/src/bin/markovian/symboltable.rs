@@ -107,6 +107,28 @@ pub struct ImproveSymbolTableCommand {
     /// Number of symbol combine steps to perform
     #[structopt(long, default_value = "50")]
     combine_steps: usize,
+
+    /// Weight percent for symbol trimming
+    #[structopt(long)]
+    symbol_trim_percent_weight: Option<f64>,
+
+    /// Min weight for symbol trimming
+    #[structopt(long)]
+    symbol_trim_min_weight: Option<f64>,
+}
+
+impl ImproveSymbolTableCommand {
+    pub fn get_symbol_trim_mode(&self) -> Result<SymbolTrimmingMode, String> {
+        match (self.symbol_trim_min_weight, self.symbol_trim_percent_weight) {
+            (None, None) => Ok(SymbolTrimmingMode::None),
+            (None, Some(w)) => Ok(SymbolTrimmingMode::MaxSumPercent(w)),
+            (Some(w), None) => Ok(SymbolTrimmingMode::MaxWeight(w)),
+            (Some(_), Some(_)) => Err(
+                "Can only specify one of symbol_trim_percent_weight and symbol_trim_min_weight"
+                    .to_string(),
+            ),
+        }
+    }
 }
 
 pub fn table_encoding_from_string(v: &str) -> Result<TableEncoding, String> {
@@ -371,15 +393,89 @@ pub trait ImproveSymbolTableCallbacks {
     fn on_end(&self, analyser: &AnalyserWrapper);
 }
 
+#[derive(PartialEq, Debug)]
+pub enum SymbolTrimmingMode {
+    None,
+    MaxSumPercent(f64),
+    MaxWeight(f64),
+}
+
 pub fn improve_symbol_table<CallBack: ImproveSymbolTableCallbacks>(
     symboltable: SymbolTableWrapper,
     input_tokens: Vec<String>,
     callback: CallBack,
     n_combine_steps: usize,
+    symbol_trimming_mode: SymbolTrimmingMode,
 ) -> SymbolTableWrapper {
     let mut analyser = AnalyserWrapper::new(symboltable, input_tokens);
 
     callback.on_init(&analyser);
+
+    if symbol_trimming_mode != SymbolTrimmingMode::None {
+        let renderer = analyser.get_symbol_renderer("^", "$");
+
+        let mut symbol_counts = analyser.get_symbol_counts();
+        let symbol_weight_sum: f64 = symbol_counts.iter().map(|(_s, c)| c.1).sum();
+
+        let cut_weight = match symbol_trimming_mode {
+            SymbolTrimmingMode::None => unreachable!(),
+            SymbolTrimmingMode::MaxSumPercent(percent_trim) => {
+                symbol_counts.sort_by(|a, b| (a.1).1.partial_cmp(&(b.1).1).unwrap());
+                let cum_sum_weights: Vec<f64> = symbol_counts
+                    .iter()
+                    .scan(0.0, |acc, &x| {
+                        *acc += (x.1).1;
+                        Some(*acc)
+                    })
+                    .collect();
+
+                let symbol_cum_weight_max = (percent_trim / 100.0) * symbol_weight_sum;
+                let idx = cum_sum_weights
+                    .binary_search_by(|a| a.partial_cmp(&symbol_cum_weight_max).unwrap());
+                let idx = match idx {
+                    Ok(idx) => idx,
+                    Err(idx) => idx,
+                };
+                if idx > 0 {
+                    (symbol_counts[idx - 1].1).1
+                } else {
+                    0.0
+                }
+            }
+            SymbolTrimmingMode::MaxWeight(w) => w,
+        };
+
+        info!(
+            "Purging symbols with weights less than {} of total weight = {}",
+            cut_weight, symbol_weight_sum
+        );
+        let mut symbols_and_weights_to_purge: Vec<(SymbolTableEntryId, String, f64)> =
+            symbol_counts
+                .into_iter()
+                .filter_map(|(s, (_c, w))| {
+                    if w <= cut_weight {
+                        Some((s, renderer.render(s).unwrap(), w))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+        symbols_and_weights_to_purge.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+        for s in &symbols_and_weights_to_purge {
+            info!(
+                "Purging {:?} with weight {:?} = {}%",
+                s.1,
+                s.2,
+                100.0 * s.2 / symbol_weight_sum
+            );
+        }
+        let symbols_to_purge: Vec<SymbolTableEntryId> = symbols_and_weights_to_purge
+            .into_iter()
+            .map(|(sid, _, _)| sid)
+            .collect();
+        drop(renderer);
+        analyser.purge_symbols(&symbols_to_purge);
+    }
 
     for _i in 0..n_combine_steps {
         // Take the commonest bigram and remove it
@@ -443,8 +539,13 @@ fn command_improve_symbol_table(cmd: &ImproveSymbolTableCommand) {
     let input_tokens: Vec<String> = crate::utils::read_input_lines(&cmd.input_file, |s| s);
 
     let callbacks = CommandImproveSymbolTableCallbacks {};
-    let symbol_table: SymbolTableWrapper =
-        improve_symbol_table(symboltable, input_tokens, callbacks, cmd.combine_steps);
+    let symbol_table: SymbolTableWrapper = improve_symbol_table(
+        symboltable,
+        input_tokens,
+        callbacks,
+        cmd.combine_steps,
+        cmd.get_symbol_trim_mode().unwrap(),
+    );
     let encoded: Vec<u8> = bincode::serialize(&symbol_table).unwrap();
     std::fs::write(&cmd.output, &encoded).unwrap();
     println!("wrote {} ", cmd.output.display());

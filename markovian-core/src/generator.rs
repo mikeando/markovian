@@ -1120,11 +1120,11 @@ mod test {
     fn dumb_u8_symbol_table<T: AsRef<str>>(values: &[T]) -> SymbolTable<u8> {
         let mut symbol_table = SymbolTable::new();
 
-        symbol_table.add(SymbolTableEntry::Start);
-        symbol_table.add(SymbolTableEntry::End);
+        symbol_table.add(SymbolTableEntry::Start).unwrap();
+        symbol_table.add(SymbolTableEntry::End).unwrap();
         for s in values {
             for c in s.as_ref().bytes() {
-                symbol_table.add(SymbolTableEntry::Single(c));
+                symbol_table.add(SymbolTableEntry::Single(c)).unwrap();
             }
         }
 
@@ -1344,10 +1344,10 @@ mod test {
         // AB -> $
 
         let mut symbol_table: SymbolTable<u8> = SymbolTable::new();
-        let start = symbol_table.add(SymbolTableEntry::Start);
-        let end = symbol_table.add(SymbolTableEntry::End);
-        let a = symbol_table.add(SymbolTableEntry::Single(b'a'));
-        let b = symbol_table.add(SymbolTableEntry::Single(b'b'));
+        let start = symbol_table.add(SymbolTableEntry::Start).unwrap();
+        let end = symbol_table.add(SymbolTableEntry::End).unwrap();
+        let a = symbol_table.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let b = symbol_table.add(SymbolTableEntry::Single(b'b')).unwrap();
 
         let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
         ngrams.insert(vec![start, start, a], 1.0);
@@ -1385,11 +1385,11 @@ mod test {
         // AB -> $
 
         let mut symbol_table: SymbolTable<u8> = SymbolTable::new();
-        let start = symbol_table.add(SymbolTableEntry::Start);
-        let end = symbol_table.add(SymbolTableEntry::End);
-        let a = symbol_table.add(SymbolTableEntry::Single(b'a'));
-        let b = symbol_table.add(SymbolTableEntry::Single(b'b'));
-        let c = symbol_table.add(SymbolTableEntry::Single(b'c'));
+        let start = symbol_table.add(SymbolTableEntry::Start).unwrap();
+        let end = symbol_table.add(SymbolTableEntry::End).unwrap();
+        let a = symbol_table.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let b = symbol_table.add(SymbolTableEntry::Single(b'b')).unwrap();
+        let c = symbol_table.add(SymbolTableEntry::Single(b'c')).unwrap();
 
         let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
         ngrams.insert(vec![start, start, a], 1.0);
@@ -1434,10 +1434,10 @@ mod test {
     pub fn serialize_deserialize_with_katz() {
         let mut symbol_table: SymbolTable<u8> = SymbolTable::new();
 
-        symbol_table.add(SymbolTableEntry::Start);
-        symbol_table.add(SymbolTableEntry::End);
-        let a = symbol_table.add(SymbolTableEntry::Single(b'a'));
-        let b = symbol_table.add(SymbolTableEntry::Single(b'b'));
+        symbol_table.add(SymbolTableEntry::Start).unwrap();
+        symbol_table.add(SymbolTableEntry::End).unwrap();
+        let a = symbol_table.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let b = symbol_table.add(SymbolTableEntry::Single(b'b')).unwrap();
 
         let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
         ngrams.insert(vec![a, a, a], 1.0);

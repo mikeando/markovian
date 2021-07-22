@@ -224,7 +224,7 @@ pub fn build_symbol_table(encoding: &TableEncoding, input_tokens: &[String]) -> 
             let mut symbol_table = SymbolTable::<u8>::new();
             for k in input_tokens {
                 for b in k.as_bytes() {
-                    symbol_table.add(SymbolTableEntry::Single(*b));
+                    symbol_table.add(SymbolTableEntry::Single(*b)).unwrap();
                 }
             }
             SymbolTableWrapper::Bytes(symbol_table)
@@ -233,7 +233,7 @@ pub fn build_symbol_table(encoding: &TableEncoding, input_tokens: &[String]) -> 
             let mut symbol_table = SymbolTable::<char>::new();
             for k in input_tokens {
                 for c in k.chars() {
-                    symbol_table.add(SymbolTableEntry::Single(c));
+                    symbol_table.add(SymbolTableEntry::Single(c)).unwrap();
                 }
             }
             SymbolTableWrapper::String(symbol_table)

@@ -242,10 +242,12 @@ pub mod tests {
     fn default_symbol_table() -> (SymbolTable<u8>, ContextDefault) {
         let mut result = SymbolTable::new();
 
-        let start = result.add(SymbolTableEntry::Start);
-        let end = result.add(SymbolTableEntry::End);
-        let a = result.add(SymbolTableEntry::Single(b'a'));
-        let xyz = result.add(SymbolTableEntry::Compound(vec![b'x', b'y', b'z']));
+        let start = result.add(SymbolTableEntry::Start).unwrap();
+        let end = result.add(SymbolTableEntry::End).unwrap();
+        let a = result.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let xyz = result
+            .add(SymbolTableEntry::Compound(vec![b'x', b'y', b'z']))
+            .unwrap();
 
         (result, ContextDefault { start, end, a, xyz })
     }

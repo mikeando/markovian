@@ -1,8 +1,30 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
+use snafu::{ensure, Snafu};
 
 use crate::vecutils::select_by_lowest_value;
+
+#[derive(Debug, Snafu, Eq, PartialEq)]
+pub enum Error {
+    #[snafu(display("Invalid Symbolify"))]
+    InvalidSymbolify,
+
+    #[snafu(display("Invalid SymbolType: {:?}", symbol_type))]
+    InvalidSymbolType { symbol_type: SymbolTableEntryType },
+
+    #[snafu(display("Invalid symbol id: {}", symbol_id.0))]
+    InvalidId { symbol_id: SymbolTableEntryId },
+
+    #[snafu(display("Invalid operation: {}", mesg))]
+    InvalidOperation { mesg: String },
+
+    #[snafu(display("Internal Error"))]
+    InternalError,
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Serialize, Deserialize)]
 pub struct SymbolTableEntryId(pub u64);
@@ -206,18 +228,34 @@ where
 
 impl<T> SymbolTable<T>
 where
-    T: PartialEq + Ord + Clone,
+    T: PartialEq + Ord + Clone + Debug,
 {
-    pub fn add(&mut self, value: SymbolTableEntry<T>) -> SymbolTableEntryId {
+    pub fn add(&mut self, value: SymbolTableEntry<T>) -> Result<SymbolTableEntryId> {
         if value == SymbolTableEntry::Start {
-            return self.start_symbol_id();
+            return Ok(self.start_symbol_id());
         }
         if value == SymbolTableEntry::End {
-            return self.end_symbol_id();
+            return Ok(self.end_symbol_id());
+        }
+
+        ensure!(
+            !matches!(value, SymbolTableEntry::Dead(_)),
+            InvalidOperation {
+                mesg: "can not remove add dead entry"
+            }
+        );
+
+        if let SymbolTableEntry::Compound(ref vs) = value {
+            ensure!(
+                !vs.is_empty(),
+                InvalidOperation {
+                    mesg: "can not add empty compound entry"
+                }
+            );
         }
 
         if let Some(id) = self.find(&value) {
-            return id;
+            return Ok(id);
         }
 
         let first = value.first().cloned();
@@ -248,7 +286,7 @@ where
                 .push((id.0 - 2) as usize)
         }
 
-        id
+        Ok(id)
     }
 
     pub fn find(&self, value: &SymbolTableEntry<T>) -> Option<SymbolTableEntryId> {
@@ -271,12 +309,31 @@ where
 
     // We don't actually remove the entry, just mark it as dead, so that we dont invalidate
     // existing ids.
-    pub fn remove(&mut self, id: SymbolTableEntryId) {
-        //TODO: Handle error cases - like trying to remove a symbol that is out-of-bounds
-        // and removing the start or end symbols.
-        assert!(id.0 >= 2);
+    pub fn remove(&mut self, id: SymbolTableEntryId) -> Result<()> {
+        ensure!(
+            id.0 != 0,
+            InvalidOperation {
+                mesg: "can not remove start symbol (id=0)".to_string()
+            }
+        );
+        ensure!(
+            id.0 != 1,
+            InvalidOperation {
+                mesg: "can not remove end symbol (id=1)".to_string()
+            }
+        );
 
-        let first = self.index[(id.0 - 2) as usize].first();
+        let idx = (id.0 - 2) as usize;
+        ensure!(idx < self.index.len(), InvalidId { symbol_id: id });
+
+        let e = &self.index[(id.0 - 2) as usize];
+        ensure!(
+            !matches!(e, SymbolTableEntry::Dead(_)),
+            InvalidOperation {
+                mesg: format!("can not remove dead symbol (id={})", id.0)
+            }
+        );
+        let first = e.first();
 
         if let Some(first) = first {
             if let Some(ids) = self.by_first_character.get_mut(first) {
@@ -291,6 +348,7 @@ where
         self.index[(id.0 - 2) as usize] = SymbolTableEntry::Dead(self.dead_chain_head);
         self.dead_chain_head = Some((id.0 - 2) as usize);
         self.n_dead += 1;
+        Ok(())
     }
 
     // Remove all the dead entries. Potentially invalidating any exitsing ids.
@@ -307,6 +365,98 @@ where
             }
         }
     }
+
+    //Panics if something is detected as "wrong"
+    pub fn check_internal_consistency(&self) {
+        // Check that there are no Start or Ends in the array
+        {
+            for e in &self.index {
+                match e {
+                    SymbolTableEntry::Start => {
+                        panic!("Start found in symbol_table.index");
+                    }
+                    SymbolTableEntry::End => {
+                        panic!("End found in symbol_table.index");
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check that the dead-chain is valid, doesn't loop
+        // and is in range.
+        // Check that number dead is correct
+        {
+            let mut dead_ids: BTreeSet<usize> = BTreeSet::new();
+            let mut dead_link = self.dead_chain_head;
+            while dead_link.is_some() {
+                let next_index = dead_link.unwrap();
+                if dead_ids.contains(&next_index) {
+                    panic!("Loop found in symbol table dead chain");
+                }
+
+                let next = &self.index[next_index];
+                if let SymbolTableEntry::Dead(d) = next {
+                    dead_ids.insert(next_index);
+                    dead_link = *d;
+                } else {
+                    panic!("Non-dead node found in dead chain")
+                }
+            }
+
+            assert_eq!(dead_ids.len(), self.n_dead);
+        }
+
+        // Check that there are no duplicate contents
+        {
+            let mut c = BTreeSet::<Either<T, Vec<T>>>::new();
+            for entry in &self.index {
+                let entry: Option<Either<T, Vec<T>>> = match entry {
+                    SymbolTableEntry::Single(v) => Some(Either::Left(v.clone())),
+                    SymbolTableEntry::Compound(vs) => Some(Either::Right(vs.clone())),
+                    _ => None,
+                };
+                if let Some(entry) = entry {
+                    let uniq = c.insert(entry);
+                    assert!(uniq, "duplicate entry found");
+                }
+            }
+        }
+
+        // Check that the map of first character to index is correct
+        {
+            let mut first_to_index = BTreeMap::<T, BTreeSet<usize>>::new();
+            for (index, entry) in self.index.iter().enumerate() {
+                let first = entry.first();
+                if let Some(first) = first {
+                    first_to_index
+                        .entry(first.clone())
+                        .or_insert_with(BTreeSet::new)
+                        .insert(index);
+                }
+            }
+
+            let mut mod_by_first_character = BTreeMap::<T, BTreeSet<usize>>::new();
+            for (k, v) in &self.by_first_character {
+                if !v.is_empty() {
+                    let s: BTreeSet<usize> = v.iter().copied().collect();
+                    mod_by_first_character.insert(k.clone(), s);
+                }
+            }
+
+            assert_eq!(
+                first_to_index, mod_by_first_character,
+                "First character indexes do not match: {:?}",
+                self
+            );
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+enum Either<L, R> {
+    Left(L),
+    Right(R),
 }
 
 impl<T> Default for SymbolTable<T>
@@ -317,14 +467,6 @@ where
         SymbolTable::new()
     }
 }
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Error {
-    InvalidSymbolify,
-    InvalidSymbolType(SymbolTableEntryType),
-}
-
-type Result<T> = std::result::Result<T, Error>;
 
 impl<T> SymbolTable<T>
 where
@@ -517,8 +659,14 @@ where
 {
     pub fn append_to_vec(&self, a: SymbolTableEntryId, v: &mut Vec<T>) -> Result<()> {
         match self.get_by_id(a).unwrap() {
-            SymbolTableEntry::Start => Err(Error::InvalidSymbolType(SymbolTableEntryType::Start)),
-            SymbolTableEntry::End => Err(Error::InvalidSymbolType(SymbolTableEntryType::End)),
+            SymbolTableEntry::Start => InvalidSymbolType {
+                symbol_type: SymbolTableEntryType::Start,
+            }
+            .fail(),
+            SymbolTableEntry::End => InvalidSymbolType {
+                symbol_type: SymbolTableEntryType::End,
+            }
+            .fail(),
             SymbolTableEntry::Single(e) => {
                 v.push(e.clone());
                 Ok(())
@@ -527,7 +675,10 @@ where
                 v.extend_from_slice(&es);
                 Ok(())
             }
-            SymbolTableEntry::Dead(_) => Err(Error::InvalidSymbolType(SymbolTableEntryType::Dead)),
+            SymbolTableEntry::Dead(_) => InvalidSymbolType {
+                symbol_type: SymbolTableEntryType::Dead,
+            }
+            .fail(),
         }
     }
 }
@@ -622,10 +773,12 @@ mod tests {
     fn default_symbol_table() -> (SymbolTable<u8>, ContextDefault) {
         let mut result = SymbolTable::new();
 
-        let start = result.add(SymbolTableEntry::Start);
-        let end = result.add(SymbolTableEntry::End);
-        let a = result.add(SymbolTableEntry::Single(b'a'));
-        let xyz = result.add(SymbolTableEntry::Compound(vec![b'x', b'y', b'z']));
+        let start = result.add(SymbolTableEntry::Start).unwrap();
+        let end = result.add(SymbolTableEntry::End).unwrap();
+        let a = result.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let xyz = result
+            .add(SymbolTableEntry::Compound(vec![b'x', b'y', b'z']))
+            .unwrap();
 
         (result, ContextDefault { start, end, a, xyz })
     }
@@ -638,9 +791,9 @@ mod tests {
 
     fn abc_table() -> (SymbolTable<u8>, ContextABC) {
         let mut s = SymbolTable::new();
-        let a = s.add(SymbolTableEntry::Single(b'a'));
-        let ab = s.add(SymbolTableEntry::Compound(vec![b'a', b'b']));
-        let ac = s.add(SymbolTableEntry::Compound(vec![b'a', b'c']));
+        let a = s.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let ab = s.add(SymbolTableEntry::Compound(vec![b'a', b'b'])).unwrap();
+        let ac = s.add(SymbolTableEntry::Compound(vec![b'a', b'c'])).unwrap();
         (s, ContextABC { a, ab, ac })
     }
 
@@ -653,10 +806,10 @@ mod tests {
 
     fn ab_table() -> (SymbolTable<u8>, ContextAB) {
         let mut s = SymbolTable::new();
-        let a = s.add(SymbolTableEntry::Single(b'a'));
-        let aa = s.add(SymbolTableEntry::Compound(vec![b'a', b'a']));
-        let b = s.add(SymbolTableEntry::Single(b'b'));
-        let ab = s.add(SymbolTableEntry::Compound(vec![b'a', b'b']));
+        let a = s.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let aa = s.add(SymbolTableEntry::Compound(vec![b'a', b'a'])).unwrap();
+        let b = s.add(SymbolTableEntry::Single(b'b')).unwrap();
+        let ab = s.add(SymbolTableEntry::Compound(vec![b'a', b'b'])).unwrap();
         (s, ContextAB { a, aa, b, ab })
     }
 
@@ -897,5 +1050,90 @@ mod tests {
             decoded.get_by_id(c.xyz),
             Some(&SymbolTableEntry::Compound(vec![b'x', b'y', b'z']))
         );
+    }
+
+    #[test]
+    pub fn remove_invalid_symbolid_returns_error() {
+        let mut s: SymbolTable<u8> = SymbolTable::new();
+        let e = s.remove(SymbolTableEntryId(100));
+        assert_eq!(
+            e,
+            Err(Error::InvalidId {
+                symbol_id: SymbolTableEntryId(100)
+            })
+        );
+    }
+
+    #[test]
+    pub fn remove_start_symbol_id_returns_error() {
+        let mut s: SymbolTable<u8> = SymbolTable::new();
+        let e = s.remove(SymbolTableEntryId(0));
+        assert_eq!(
+            e,
+            Err(Error::InvalidOperation {
+                mesg: "can not remove start symbol (id=0)".to_string()
+            })
+        );
+    }
+
+    #[test]
+    pub fn remove_end_symbol_id_returns_error() {
+        let mut s: SymbolTable<u8> = SymbolTable::new();
+        let e = s.remove(SymbolTableEntryId(1));
+        assert_eq!(
+            e,
+            Err(Error::InvalidOperation {
+                mesg: "can not remove end symbol (id=1)".to_string()
+            })
+        );
+    }
+
+    #[test]
+    pub fn add_dead_entry_errors() {
+        let mut s: SymbolTable<u8> = SymbolTable::new();
+        let entry = SymbolTableEntry::Dead(None);
+        let e = s.add(entry);
+        assert_eq!(
+            e,
+            Err(Error::InvalidOperation {
+                mesg: "can not remove add dead entry".to_string()
+            })
+        );
+    }
+
+    #[test]
+    pub fn cant_add_empty_compound() {
+        let mut s: SymbolTable<char> = SymbolTable::new();
+        let e = s.add(SymbolTableEntry::Compound(vec![]));
+        assert_eq!(
+            e,
+            Err(Error::InvalidOperation {
+                mesg: "can not add empty compound entry".to_string()
+            })
+        );
+    }
+
+    #[test]
+    pub fn double_remove_is_ok_01() {
+        let mut s: SymbolTable<char> = SymbolTable::new();
+        let _ = s.add(SymbolTableEntry::Compound(vec!['a']));
+        s.check_internal_consistency();
+        let _ = s.remove(SymbolTableEntryId(2));
+        s.check_internal_consistency();
+        let _ = s.remove(SymbolTableEntryId(2));
+        s.check_internal_consistency();
+    }
+
+    #[test]
+    pub fn double_remove_is_ok_02() {
+        let mut s: SymbolTable<char> = SymbolTable::new();
+        let _ = s.add(SymbolTableEntry::Compound(vec!['a']));
+        s.check_internal_consistency();
+        let _ = s.add(SymbolTableEntry::Compound(vec!['b']));
+        s.check_internal_consistency();
+        let _ = s.remove(SymbolTableEntryId(3));
+        s.check_internal_consistency();
+        let _ = s.remove(SymbolTableEntryId(3));
+        s.check_internal_consistency();
     }
 }

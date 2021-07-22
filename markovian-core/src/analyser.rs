@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
 
 use crate::renderer::{SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8};
 use crate::symbol::{
@@ -115,7 +116,7 @@ where
 impl<T, Tokenizer> Analyser<T, Tokenizer>
 where
     Tokenizer: WordToToken<T>,
-    T: Eq + Clone + Ord,
+    T: Eq + Clone + Ord + Debug,
 {
     //TODO: Should this take ownership of the list of strings too?
     pub fn new(
@@ -187,7 +188,7 @@ where
         self.symbol_table.append_to_vec(a, &mut v).unwrap();
         self.symbol_table.append_to_vec(b, &mut v).unwrap();
         let symbol_table_entry = SymbolTableEntry::Compound(v);
-        let new_id = self.symbol_table.add(symbol_table_entry);
+        let new_id = self.symbol_table.add(symbol_table_entry).unwrap();
 
         let words_with_a = self.a.symbol_to_word_map.get(&a);
         let words_with_b = self.a.symbol_to_word_map.get(&b);
@@ -343,8 +344,9 @@ mod tests {
     #[test]
     pub fn test_create() {
         let mut u = SymbolTable::<char>::new();
-        u.add(SymbolTableEntry::Single('a'));
-        u.add(SymbolTableEntry::Compound("bb".chars().collect()));
+        u.add(SymbolTableEntry::Single('a')).unwrap();
+        u.add(SymbolTableEntry::Compound("bb".chars().collect()))
+            .unwrap();
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = CharTokenizer;
         let _a: Analyser<char, CharTokenizer> = Analyser::new(u, tokenizer, wordlist);
@@ -353,8 +355,10 @@ mod tests {
     #[test]
     pub fn test_get_best_tokenisations() {
         let mut u = SymbolTable::<char>::new();
-        let id_a = u.add(SymbolTableEntry::Single('a'));
-        let id_bb = u.add(SymbolTableEntry::Compound("bb".chars().collect()));
+        let id_a = u.add(SymbolTableEntry::Single('a')).unwrap();
+        let id_bb = u
+            .add(SymbolTableEntry::Compound("bb".chars().collect()))
+            .unwrap();
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = CharTokenizer;
 
@@ -372,8 +376,10 @@ mod tests {
         let mut u = SymbolTable::<char>::new();
         let _id_start = u.start_symbol_id();
         let _id_end = u.end_symbol_id();
-        let id_a = u.add(SymbolTableEntry::Single('a'));
-        let id_bb = u.add(SymbolTableEntry::Compound("bb".chars().collect()));
+        let id_a = u.add(SymbolTableEntry::Single('a')).unwrap();
+        let id_bb = u
+            .add(SymbolTableEntry::Compound("bb".chars().collect()))
+            .unwrap();
         let _id_c = u.add(SymbolTableEntry::Single('c'));
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = CharTokenizer;
@@ -388,8 +394,10 @@ mod tests {
         let mut u = SymbolTable::<char>::new();
         let _id_start = u.start_symbol_id();
         let _id_end = u.end_symbol_id();
-        let id_a = u.add(SymbolTableEntry::Single('a'));
-        let id_bb = u.add(SymbolTableEntry::Compound("bb".chars().collect()));
+        let id_a = u.add(SymbolTableEntry::Single('a')).unwrap();
+        let id_bb = u
+            .add(SymbolTableEntry::Compound("bb".chars().collect()))
+            .unwrap();
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = CharTokenizer;
         let mut a = Analyser::new(u, tokenizer, wordlist);
@@ -413,8 +421,10 @@ mod tests {
         let mut u = SymbolTable::<char>::new();
         let id_start = u.start_symbol_id();
         let id_end = u.end_symbol_id();
-        let id_a = u.add(SymbolTableEntry::Single('a'));
-        let id_aa = u.add(SymbolTableEntry::Compound("aa".chars().collect()));
+        let id_a = u.add(SymbolTableEntry::Single('a')).unwrap();
+        let id_aa = u
+            .add(SymbolTableEntry::Compound("aa".chars().collect()))
+            .unwrap();
         let wordlist = vec!["aaa".to_string()];
         let tokenizer = CharTokenizer;
         let a = Analyser::new(u, tokenizer, wordlist);
@@ -453,8 +463,8 @@ mod tests {
         let mut u = SymbolTable::<u8>::new();
         let id_start = u.start_symbol_id();
         let id_end = u.end_symbol_id();
-        let id_a = u.add(SymbolTableEntry::Single(b'a'));
-        let id_bb = u.add(SymbolTableEntry::Compound(b"bb".to_vec()));
+        let id_a = u.add(SymbolTableEntry::Single(b'a')).unwrap();
+        let id_bb = u.add(SymbolTableEntry::Compound(b"bb".to_vec())).unwrap();
         let wordlist = vec!["aa".to_string(), "bb".to_string()];
         let tokenizer = ByteTokenizer;
         let a: Analyser<u8, ByteTokenizer> = Analyser::new(u, tokenizer, wordlist);

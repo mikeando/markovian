@@ -459,17 +459,17 @@ impl PackedSymbolId for SymbolTableEntryId {
     }
 }
 
-impl<T, D, P> Into<GeneratorReprInternal<T, D, P>> for Generator<T, D>
+impl<T, D, P> From<Generator<T, D>> for GeneratorReprInternal<T, D, P>
 where
     T: Ord + Clone,
     D: Field,
     P: PackedSymbolId + Copy + PartialEq,
 {
-    fn into(self) -> GeneratorReprInternal<T, D, P> {
-        let ngram_size: usize = self.transition_table.n;
+    fn from(v: Generator<T, D>) -> Self {
+        let ngram_size: usize = v.transition_table.n;
         let mut key_collections: BTreeMap<usize, PackedKeyCollection<P, D>> = BTreeMap::new();
 
-        for (key, weight) in self.transition_table.to_ngrams_and_weights().0 {
+        for (key, weight) in v.transition_table.to_ngrams_and_weights().0 {
             let key_length = key.len();
             let packed_key: Vec<_> = key.into_iter().map(P::pack).collect();
             key_collections
@@ -478,26 +478,26 @@ where
                 .add_entry(&packed_key, weight);
         }
         GeneratorReprInternal {
-            symbol_table: self.symbol_table,
+            symbol_table: v.symbol_table,
             key_collections,
             n: ngram_size,
         }
     }
 }
 
-impl<T, D> Into<GeneratorRepr<T, D>> for Generator<T, D>
+impl<T, D> From<Generator<T, D>> for GeneratorRepr<T, D>
 where
     T: Ord + Clone,
     D: Field,
 {
-    fn into(self) -> GeneratorRepr<T, D> {
-        let max_symbol_id = self.symbol_table.max_symbol_id();
+    fn from(v: Generator<T, D>) -> Self {
+        let max_symbol_id = v.symbol_table.max_symbol_id();
         if max_symbol_id <= u8::MAX as usize {
-            GeneratorRepr::GeneratorReprU8(self.into())
+            GeneratorRepr::GeneratorReprU8(v.into())
         } else if max_symbol_id <= u16::MAX as usize {
-            GeneratorRepr::GeneratorReprU16(self.into())
+            GeneratorRepr::GeneratorReprU16(v.into())
         } else {
-            GeneratorRepr::GeneratorReprRaw(self.into())
+            GeneratorRepr::GeneratorReprRaw(v.into())
         }
     }
 }

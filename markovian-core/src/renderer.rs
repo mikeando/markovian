@@ -94,13 +94,13 @@ impl<'a> SymbolIdRenderer for SymbolIdRendererChar<'a> {
 pub trait Renderer {
     //TODO: Should this instead use a writer?
     //TODO: Should it report errors?
-    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> Result<String, RenderError>;
+    fn render(&self, v: &'_ [SymbolTableEntryId]) -> Result<String, RenderError>;
 }
 
 pub struct RendererId {}
 
 impl Renderer for RendererId {
-    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
+    fn render(&self, v: &'_ [SymbolTableEntryId]) -> Result<String, RenderError> {
         Ok(format!("{:?}", v.iter().map(|id| id.0).collect::<Vec<_>>()))
     }
 }
@@ -112,7 +112,7 @@ pub struct RenderU8<'a> {
 }
 
 impl<'b> Renderer for RenderU8<'b> {
-    fn render<'a>(&self, ids: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
+    fn render(&self, ids: &'_ [SymbolTableEntryId]) -> Result<String, RenderError> {
         //TODO: Get rid of SymbolRender and replace with symbol_id_render?
         let mut result: Vec<u8> = vec![];
         for id in ids {
@@ -147,7 +147,7 @@ pub struct RenderChar<'a> {
 }
 
 impl<'b> Renderer for RenderChar<'b> {
-    fn render<'a>(&self, ids: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
+    fn render(&self, ids: &'_ [SymbolTableEntryId]) -> Result<String, RenderError> {
         //TODO: Get rid of SymbolRender and replace with symbol_id_render?
         let mut result: String = String::new();
         for id in ids {
@@ -210,7 +210,7 @@ impl<'b, T> Renderer for RendererWithSeparator<'b, T>
 where
     T: SymbolIdRenderer,
 {
-    fn render<'a>(&self, v: &'a [SymbolTableEntryId]) -> Result<String, RenderError> {
+    fn render(&self, v: &'_ [SymbolTableEntryId]) -> Result<String, RenderError> {
         use std::fmt::Write;
         let mut result: String = String::new();
         let mut is_start = true;

@@ -1,19 +1,21 @@
-use serde::{Deserialize, Serialize};
-use std::{borrow::Borrow, path::PathBuf};
+use std::borrow::Borrow;
+use std::path::PathBuf;
 
-use markovian_core::{
-    generator::add_padding,
-    generator::create_ngrams,
-    generator::GenerationError,
-    generator::Generator,
-    generator::ToSymbolsAndWeights,
-    generator::WeightRange,
-    generator::{InverseSquareOfLengthWeigther, ShortestOnlyWeigther},
-    renderer::RenderChar,
-    renderer::RenderU8,
-    symbol::{SymbolTableEntryId, SymbolTableWrapper},
+use markovian_core::generator::{
+    add_padding,
+    create_ngrams,
+    GenerationError,
+    Generator,
+    InverseSquareOfLengthWeigther,
+    ShortestOnlyWeigther,
+    ToSymbolsAndWeights,
+    WeightRange,
 };
-use structopt::{clap::arg_enum, StructOpt};
+use markovian_core::renderer::{RenderChar, RenderU8};
+use markovian_core::symbol::{SymbolTableEntryId, SymbolTableWrapper};
+use serde::{Deserialize, Serialize};
+use structopt::clap::arg_enum;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 pub enum Command {

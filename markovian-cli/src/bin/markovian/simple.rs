@@ -1,20 +1,16 @@
 use std::path::PathBuf;
 
+use log::info;
+use markovian_core::symbol::{SymbolTableWrapper, TableEncoding};
 use structopt::StructOpt;
 
-use log::info;
-
-use crate::{
-    generator::build_generator,
-    generator::generate_words,
-    generator::BreakerMode,
-    generator::GeneratorWrapper,
-    symboltable::{
-        build_symbol_table, improve_symbol_table, table_encoding_from_string,
-        ImproveSymbolTableCallbacks,
-    },
+use crate::generator::{build_generator, generate_words, BreakerMode, GeneratorWrapper};
+use crate::symboltable::{
+    build_symbol_table,
+    improve_symbol_table,
+    table_encoding_from_string,
+    ImproveSymbolTableCallbacks,
 };
-use markovian_core::symbol::{SymbolTableWrapper, TableEncoding};
 
 #[derive(Debug, StructOpt)]
 pub enum Command {

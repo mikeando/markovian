@@ -38,7 +38,7 @@ The libraries with versions and copyright holders covered by this license are:
 
 ## Indirect 3rd party code under MIT License
 
-These are libraries that the above directly included libraries may include. 
+These are libraries that the above directly included libraries may include.
 Code from these libraries may make it into executables.
 
 * ansi-term (v0.11.0) https://github.com/ogham/rust-ansi-term : Copyright (c) 2014 Benjamin Sago

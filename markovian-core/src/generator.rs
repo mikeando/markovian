@@ -1,17 +1,14 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::iter;
+
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    num_basic::Field,
-    renderer::Renderer,
-    symbol::{shortest_symbolifications, SymbolTable, SymbolTableEntryId},
-    vecutils::Reversible,
-    weighted_sampler::WeightedSampler,
-};
-use rand::Rng;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    iter,
-};
+use crate::num_basic::Field;
+use crate::renderer::Renderer;
+use crate::symbol::{shortest_symbolifications, SymbolTable, SymbolTableEntryId};
+use crate::vecutils::Reversible;
+use crate::weighted_sampler::WeightedSampler;
 
 #[derive(Debug, PartialEq)]
 pub enum GenerationError {
@@ -68,7 +65,7 @@ where
                 .add_symbol_with_weight(v[v.len() - 1].clone(), w);
         }
 
-        TransitionTable { weights_table, n }
+        TransitionTable { n, weights_table }
     }
 
     pub fn to_ngrams_and_weights(&self) -> (BTreeMap<Vec<T>, D>, usize) {
@@ -1117,7 +1114,8 @@ where
 mod test {
 
     use super::*;
-    use crate::{renderer::RenderU8, symbol::SymbolTableEntry};
+    use crate::renderer::RenderU8;
+    use crate::symbol::SymbolTableEntry;
 
     fn dumb_u8_symbol_table<T: AsRef<str>>(values: &[T]) -> SymbolTable<u8> {
         let mut symbol_table = SymbolTable::new();

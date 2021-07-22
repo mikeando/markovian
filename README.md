@@ -17,8 +17,8 @@ words or names rather than fake ones. It may even decide to give you profanities
 The easiest way is to download one of the precompiled versions from the releases page
 https://github.com/mikeando/markovian/releases.
 
-If you're using windows you'll need to have the microsoft Visual C++ Redistributable libraries 
-installed, which can be downloaded from https://www.microsoft.com/en-au/download/details.aspx?id=48145 
+If you're using windows you'll need to have the microsoft Visual C++ Redistributable libraries
+installed, which can be downloaded from https://www.microsoft.com/en-au/download/details.aspx?id=48145
 
 There is a build for linux, but it is currently untested - I don't expect any issues, but it may not work at all.
 
@@ -91,20 +91,20 @@ repeatedly take the most recent 2 parts and look for a matching triplet until we
 For example if we've added just the words CAT and DOG and DOLL to our lists, we might end up regenerating the word dog as follows
 
 ```
-      ^^? 
+      ^^?
           - we have ^^C or ^^D  - pick ^^D
 ^     ^D?
           - both DOG and DOLL contribute ^DO, there are no other options
 ^^    DO?
           - DOG contribites DOG, DOLL contributes DOL - pick DOG
-^^D   OG? 
+^^D   OG?
           - only DOG contributes a matching triplet, OG$
 ^^DOG$?
 ```
 
-This is a fairly standard Markov chain generation. Markovian tries to be a little bit smarter, by 
-treating some sequences of characters as a single unit. For example the names joseph and philip might be 
-treated as 
+This is a fairly standard Markov chain generation. Markovian tries to be a little bit smarter, by
+treating some sequences of characters as a single unit. For example the names joseph and philip might be
+treated as
 
 ```
 j|o|se|ph
@@ -121,8 +121,8 @@ o|se|ph
 
 # Advanced usage
 
-Generation from scratch can take a while on large word lists, 
-so markovian can save the intermediate parts, leading to a final 
+Generation from scratch can take a while on large word lists,
+so markovian can save the intermediate parts, leading to a final
 file called a generator that can be used to quickly generate words.
 
 Conceptually going from a word list to a generator has three steps.
@@ -133,28 +133,28 @@ Conceptually going from a word list to a generator has three steps.
 
 ## Generating the initial symbol table
 
-The first stage is 
+The first stage is
 
 ```
 markovian symbol-table generate --encoding=string --output=A.symboltable --input=word-list-1.txt --input=word-list-2.txt
 ```
 
-This generates a symbol table file called `A.symboltable` containing all the symbols from the two input word lists --- 
+This generates a symbol table file called `A.symboltable` containing all the symbols from the two input word lists ---
 you'll want to use a better name for the output.
 
-You can see the list of symbols it uses 
+You can see the list of symbols it uses
 
 ```
 markovian symbol-table print --input=A.symtable
 ```
 
-For example 
+For example
 
 ```
-> markovian symbol-table generate --encoding=string --output=Moby_initial.symboltable --input=resources/Moby_Names_M_lc.txt 
+> markovian symbol-table generate --encoding=string --output=Moby_initial.symboltable --input=resources/Moby_Names_M_lc.txt
 using 3878 input strings
 found 30 symbols
-wrote Moby_initial.symboltable 
+wrote Moby_initial.symboltable
 > markovian symbol-table print --input=Moby_initial.symboltable
 encoding: char
 max symbol id: 30
@@ -169,23 +169,23 @@ max symbol id: 30
 25 => z
 26 => v
 27 => '
-28 =>  
+28 =>
 29 => q
 ```
 
 ## Combining symbols
 
-This step works on an existing symbol table file and looks for symbols that occur together frequently in the input 
+This step works on an existing symbol table file and looks for symbols that occur together frequently in the input
 and combines them into one compound symbol.
 
 ```
 markovian symbol-table improve A.symboltable --output=B.symboltable word-list-1.txt word-list-2.txt
 ```
 
-For example 
+For example
 
 ```
-> markovian symbol-table improve Moby_initial.symboltable --output Moby_50.symboltable resources/Moby_Names_M_lc.txt 
+> markovian symbol-table improve Moby_initial.symboltable --output Moby_50.symboltable resources/Moby_Names_M_lc.txt
 ...
 > markovian symbol-table print --input=Moby_50.symboltable
 encoding: char
@@ -244,7 +244,7 @@ Here we have the results of no combining, 1 combining run (50 steps), 2 combinin
 
 
 ```
-None            50            100         150           
+None            50            100         150
 ----            ----          ----        ----
 derrikosmenie   abe           magnum      esterby
 cultombry       lo            pincey      valentissiley
@@ -268,8 +268,8 @@ sigiart         humashan      fran        bogart
 abaley          santons       ter         ripporsigis
 ```
 
-I would claim that the results from the 50, 100 and 150 columns are 
-in general better names than those from the None column. 
+I would claim that the results from the 50, 100 and 150 columns are
+in general better names than those from the None column.
 But I'm not sure that I could quantify this in any meaningful way.
 
 # 3rd party components

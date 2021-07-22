@@ -1,17 +1,27 @@
-use log::info;
-use std::{collections::BTreeMap, path::PathBuf};
-use structopt::StructOpt;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
-use markovian_core::{
-    analyser::AnalyserWrapper,
-    renderer::{
-        renderer_for_char_with_separator, renderer_for_u8_with_separator, RenderChar, RenderU8,
-        Renderer, RendererId, SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8,
-    },
-    symbol::{
-        SymbolTable, SymbolTableEntry, SymbolTableEntryId, SymbolTableWrapper, TableEncoding,
-    },
+use log::info;
+use markovian_core::analyser::AnalyserWrapper;
+use markovian_core::renderer::{
+    renderer_for_char_with_separator,
+    renderer_for_u8_with_separator,
+    RenderChar,
+    RenderU8,
+    Renderer,
+    RendererId,
+    SymbolIdRenderer,
+    SymbolIdRendererChar,
+    SymbolIdRendererU8,
 };
+use markovian_core::symbol::{
+    SymbolTable,
+    SymbolTableEntry,
+    SymbolTableEntryId,
+    SymbolTableWrapper,
+    TableEncoding,
+};
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 pub enum Command {

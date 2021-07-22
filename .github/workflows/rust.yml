@@ -29,7 +29,7 @@ jobs:
         args: -- -D warnings
     - uses: actions-rs/cargo@v1
       with:
-        command: build 
+        command: build
     - uses: actions-rs/cargo@v1
       with:
         command: test

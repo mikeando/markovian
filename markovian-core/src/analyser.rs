@@ -1,13 +1,15 @@
-use crate::{
-    renderer::{SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8},
-    symbol::{
-        shortest_symbolifications, SymbolTable, SymbolTableEntry, SymbolTableEntryId,
-        SymbolTableWrapper,
-    },
-    tombstone::{self, TombstoneList},
-    vecutils::select_by_lowest_value,
-};
 use std::collections::{BTreeMap, BTreeSet};
+
+use crate::renderer::{SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8};
+use crate::symbol::{
+    shortest_symbolifications,
+    SymbolTable,
+    SymbolTableEntry,
+    SymbolTableEntryId,
+    SymbolTableWrapper,
+};
+use crate::tombstone::{self, TombstoneList};
+use crate::vecutils::select_by_lowest_value;
 
 struct WordEntry<T> {
     raw_word: String,
@@ -98,7 +100,7 @@ impl<T> A2<T> {
 // allocating up a complete buffer, but the lifetimes on the required associated types
 // are tricky.
 pub trait WordToToken<T> {
-    fn convert<'a>(&self, s: &'a str) -> Vec<T>;
+    fn convert(&self, s: &'_ str) -> Vec<T>;
 }
 
 pub struct Analyser<T, Tokenizer>
@@ -217,7 +219,7 @@ where
 pub struct CharTokenizer;
 
 impl WordToToken<char> for CharTokenizer {
-    fn convert<'a>(&self, s: &'a str) -> Vec<char> {
+    fn convert(&self, s: &'_ str) -> Vec<char> {
         s.chars().collect()
     }
 }
@@ -225,7 +227,7 @@ impl WordToToken<char> for CharTokenizer {
 pub struct ByteTokenizer;
 
 impl WordToToken<u8> for ByteTokenizer {
-    fn convert<'a>(&self, s: &'a str) -> Vec<u8> {
+    fn convert(&self, s: &'_ str) -> Vec<u8> {
         s.as_bytes().to_vec()
     }
 }

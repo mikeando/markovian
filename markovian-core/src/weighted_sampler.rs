@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
+
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::num_basic::Field;
-use rand::Rng;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WeightedSampler<T, D>

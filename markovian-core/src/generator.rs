@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::num_basic::Field;
 use crate::renderer::Renderer;
 use crate::symbol::{shortest_symbolifications, SymbolTable, SymbolTableEntryId};
-use crate::vecutils::Reversible;
+use crate::vecutils::{pad, Reversible};
 use crate::weighted_sampler::WeightedSampler;
 
 #[derive(Debug, PartialEq)]
@@ -68,7 +68,7 @@ where
         TransitionTable { n, weights_table }
     }
 
-    pub fn to_ngrams_and_weights(&self) -> (BTreeMap<Vec<T>, D>, usize) {
+    pub fn to_ngrams_and_weights(&self) -> BTreeMap<Vec<T>, D> {
         let mut result = BTreeMap::new();
         for (k, ws) in &self.weights_table {
             for (s, w) in &ws.counts {
@@ -77,7 +77,7 @@ where
                 result.insert(v, *w);
             }
         }
-        (result, self.n)
+        result
     }
 
     pub fn sample<R: Rng>(&self, key: &[T], katz_coefficient: Option<D>, rng: &mut R) -> Option<T> {
@@ -331,6 +331,7 @@ impl WeightRange {
 pub struct GeneratorInfo {
     pub ngram_weights_by_length: BTreeMap<usize, WeightRange>,
     pub prefix_weights_by_length: BTreeMap<usize, WeightRange>,
+    pub ngram_weight_summaries_by_length: BTreeMap<usize, WeightSummary>,
 }
 
 impl GeneratorInfo {
@@ -350,6 +351,7 @@ impl GeneratorInfo {
         GeneratorInfo {
             ngram_weights_by_length: BTreeMap::new(),
             prefix_weights_by_length: BTreeMap::new(),
+            ngram_weight_summaries_by_length: BTreeMap::new(),
         }
     }
 }
@@ -360,9 +362,48 @@ impl Default for GeneratorInfo {
     }
 }
 
-// TODO: This serializes "badly" - there's a lot of redundency
+#[derive(Debug)]
+pub struct WeightQuantile {
+    pub q: f64,
+    pub w: f64,
+    pub sym: Vec<SymbolTableEntryId>,
+}
+
+#[derive(Debug)]
+pub struct WeightSummary {
+    pub quantiles: Vec<WeightQuantile>,
+}
+
+impl WeightSummary {
+    pub fn from_weights_and_quantiles(
+        weights: &[(f64, Vec<SymbolTableEntryId>)],
+        quantiles: &[f64],
+    ) -> WeightSummary {
+        let n = weights.len();
+
+        let quantiles: Vec<WeightQuantile> = quantiles
+            .iter()
+            .map(|&q| {
+                let i = ((n as f64) * q).round();
+                let idx = if i <= 0.0 {
+                    0
+                } else if i >= weights.len() as f64 {
+                    weights.len() - 1
+                } else {
+                    i as usize
+                };
+                let (w, sym) = weights[idx].clone();
+                WeightQuantile { q, w, sym }
+            })
+            .collect();
+
+        WeightSummary { quantiles }
+    }
+}
+
+// TODO: This serializes "badly" - there's a lot of redundancy
 // it should just be the symbol_table (which tends to be very small)
-// then a list of the symbolid triples + weights. The TTs can be rebuilt from
+// then a list of the symbol_id triples + weights. The TTs can be rebuilt from
 // them quickly and easily.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(from = "GeneratorRepr<T,D>")]
@@ -391,7 +432,7 @@ where
                 ngrams.insert(kk, w);
             }
         }
-        Generator::from_ngrams(repr.symbol_table, ngrams, repr.n)
+        Generator::from_ngrams(repr.symbol_table, ngrams)
     }
 }
 
@@ -469,7 +510,7 @@ where
         let ngram_size: usize = v.transition_table.n;
         let mut key_collections: BTreeMap<usize, PackedKeyCollection<P, D>> = BTreeMap::new();
 
-        for (key, weight) in v.transition_table.to_ngrams_and_weights().0 {
+        for (key, weight) in v.transition_table.to_ngrams_and_weights() {
             let key_length = key.len();
             let packed_key: Vec<_> = key.into_iter().map(P::pack).collect();
             key_collections
@@ -510,8 +551,9 @@ where
     pub fn from_ngrams(
         symbol_table: SymbolTable<T>,
         ngrams: BTreeMap<Vec<SymbolTableEntryId>, D>,
-        n: usize,
     ) -> Generator<T, D> {
+        let n = ngrams.iter().map(|(k, _w)| k.len()).max().unwrap_or(0);
+
         let rev_ngrams: BTreeMap<Vec<SymbolTableEntryId>, D> = ngrams
             .iter()
             .map(|(ngram, w)| (ngram.reversed(), *w))
@@ -519,11 +561,22 @@ where
 
         let transition_table = TransitionTable::new(ngrams, n);
         let rev_transition_table = TransitionTable::new(rev_ngrams, n);
+
         Generator {
             symbol_table,
             transition_table,
             rev_transition_table,
         }
+    }
+
+    pub fn into_symbol_table_and_ngrams(
+        self,
+    ) -> (SymbolTable<T>, BTreeMap<Vec<SymbolTableEntryId>, D>) {
+        // We assume the forward transition table is correct
+        (
+            self.symbol_table,
+            self.transition_table.to_ngrams_and_weights(),
+        )
     }
 
     pub fn context_length(&self) -> usize {
@@ -992,8 +1045,8 @@ where
     {
         let tt: TransitionTable<SymbolTableEntryId, f32> =
             self.transition_table.map_probabilities(f);
-        let (ngrams, n) = tt.to_ngrams_and_weights();
-        Generator::from_ngrams(self.symbol_table.clone(), ngrams, n)
+        let ngrams = tt.to_ngrams_and_weights();
+        Generator::from_ngrams(self.symbol_table.clone(), ngrams)
     }
 }
 
@@ -1003,12 +1056,35 @@ where
 {
     pub fn get_info(&self) -> GeneratorInfo {
         let mut info = GeneratorInfo::new();
-        for (k, w) in self.transition_table.to_ngrams_and_weights().0.iter() {
+        for (k, w) in self.transition_table.to_ngrams_and_weights().iter() {
             info.add_ngram_weight(k.len(), *w);
         }
         for (prefix, sampler) in self.transition_table.weights_table.iter() {
             info.add_prefix_weight(prefix.len(), sampler.total);
         }
+
+        // For the more detailed weight summaries we need to actually keep all the weights
+        // But we trim out the ngrams with start/end keys
+        let mut weights: BTreeMap<usize, Vec<(f64, Vec<SymbolTableEntryId>)>> = BTreeMap::new();
+        for (k, w) in self.transition_table.to_ngrams_and_weights().iter() {
+            //TODO: Only really need to check the first and last entries.
+            if k.contains(&SymbolTableEntryId(0)) || k.contains(&SymbolTableEntryId(1)) {
+                continue;
+            }
+            weights
+                .entry(k.len())
+                .or_default()
+                .push((*w as f64, k.clone()));
+        }
+        for (n, mut ws) in weights {
+            ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let summary = WeightSummary::from_weights_and_quantiles(
+                &ws,
+                &[0.0, 0.01, 0.05, 0.1, 0.9, 0.95, 0.99, 1.0],
+            );
+            info.ngram_weight_summaries_by_length.insert(n, summary);
+        }
+
         info
     }
 }
@@ -1017,53 +1093,59 @@ pub trait ToSymbolsAndWeights<T> {
     fn to_symbols_and_weights(&self, v: &[T]) -> Vec<(Vec<SymbolTableEntryId>, f32)>;
 }
 
-pub struct InverseSquareOfLengthWeigther<'a, T>
+pub struct InverseSquareOfLengthWeighter<'a, T>
 where
     T: Ord + Clone,
 {
     symbol_table: &'a SymbolTable<T>,
 }
 
-impl<'a, T> InverseSquareOfLengthWeigther<'a, T>
+impl<'a, T> InverseSquareOfLengthWeighter<'a, T>
 where
     T: Ord + Clone,
 {
     pub fn new(symbol_table: &'a SymbolTable<T>) -> Self {
-        InverseSquareOfLengthWeigther { symbol_table }
+        InverseSquareOfLengthWeighter { symbol_table }
     }
 }
 
-impl<'a, T> ToSymbolsAndWeights<T> for InverseSquareOfLengthWeigther<'a, T>
+impl<'a, T> ToSymbolsAndWeights<T> for InverseSquareOfLengthWeighter<'a, T>
 where
     T: Ord + Clone,
 {
     fn to_symbols_and_weights(&self, v: &[T]) -> Vec<(Vec<SymbolTableEntryId>, f32)> {
         let mut result = Vec::new();
+        let mut sum_w = 0.0;
         for x in self.symbol_table.symbolifications(v) {
             let w = weight_for_symbolification(&x);
             result.push((x, w));
+            sum_w += w;
         }
+        for x in &mut result {
+            x.1 /= sum_w;
+        }
+
         result
     }
 }
 
-pub struct ShortestOnlyWeigther<'a, T>
+pub struct ShortestOnlyWeighter<'a, T>
 where
     T: Ord + Clone,
 {
     symbol_table: &'a SymbolTable<T>,
 }
 
-impl<'a, T> ShortestOnlyWeigther<'a, T>
+impl<'a, T> ShortestOnlyWeighter<'a, T>
 where
     T: Ord + Clone,
 {
     pub fn new(symbol_table: &'a SymbolTable<T>) -> Self {
-        ShortestOnlyWeigther { symbol_table }
+        ShortestOnlyWeighter { symbol_table }
     }
 }
 
-impl<'a, T> ToSymbolsAndWeights<T> for ShortestOnlyWeigther<'a, T>
+impl<'a, T> ToSymbolsAndWeights<T> for ShortestOnlyWeighter<'a, T>
 where
     T: Ord + Clone,
 {
@@ -1072,19 +1154,6 @@ where
         let l = 1.0 / (ss.len() as f32);
         ss.into_iter().map(|s| (s, l)).collect()
     }
-}
-
-pub fn add_padding(
-    n: usize,
-    start_id: SymbolTableEntryId,
-    end_id: SymbolTableEntryId,
-    v: Vec<SymbolTableEntryId>,
-) -> Vec<SymbolTableEntryId> {
-    iter::repeat(start_id)
-        .take(n)
-        .chain(v.into_iter())
-        .chain(iter::repeat(end_id).take(n))
-        .collect()
 }
 
 // TODO: Error if we can't get at least one symbolification
@@ -1102,11 +1171,11 @@ where
     assert!(n > 1);
     let start_id = symbol_table.start_symbol_id();
     let end_id = symbol_table.end_symbol_id();
-    let result = InverseSquareOfLengthWeigther::new(symbol_table).to_symbols_and_weights(v);
+    let result = InverseSquareOfLengthWeighter::new(symbol_table).to_symbols_and_weights(v);
     let sum_w: f32 = result.iter().map(|(_, w)| w).sum();
     result
         .into_iter()
-        .map(|(x, w)| (add_padding(n - 1, start_id, end_id, x), w / sum_w))
+        .map(|(x, w)| (pad(n - 1, start_id, end_id, x), w / sum_w))
         .collect()
 }
 
@@ -1140,8 +1209,8 @@ mod test {
             .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes(), 3))
             .collect();
 
-        let trigrams = create_ngrams(&symbolified_values, 3);
-        Generator::from_ngrams(symbol_table, trigrams, 3)
+        let ngrams = create_ngrams(&symbolified_values, 3);
+        Generator::from_ngrams(symbol_table, ngrams)
     }
 
     fn simple_generator_2() -> Generator<u8, f32> {
@@ -1153,8 +1222,8 @@ mod test {
             .flat_map(|s| augment_and_symbolify(&symbol_table, s.as_bytes(), 3))
             .collect();
 
-        let trigrams = create_ngrams(&symbolified_values, 3);
-        Generator::from_ngrams(symbol_table, trigrams, 3)
+        let ngrams = create_ngrams(&symbolified_values, 3);
+        Generator::from_ngrams(symbol_table, ngrams)
     }
 
     fn larger_generator() -> Generator<u8, f32> {
@@ -1175,7 +1244,7 @@ mod test {
             .collect();
 
         let trigrams = create_ngrams(&symbolified_values, 3);
-        Generator::from_ngrams(symbol_table, trigrams, 3)
+        Generator::from_ngrams(symbol_table, trigrams)
     }
 
     #[test]
@@ -1354,7 +1423,7 @@ mod test {
         ngrams.insert(vec![start, a, a], 1.0);
         ngrams.insert(vec![a, b], 1.0);
         ngrams.insert(vec![a, b, end], 1.0);
-        let gen = Generator::from_ngrams(symbol_table, ngrams, 3);
+        let gen = Generator::from_ngrams(symbol_table, ngrams);
 
         let mut rng = rand::thread_rng();
         let renderer = RenderU8 {
@@ -1399,7 +1468,7 @@ mod test {
         ngrams.insert(vec![a, b, end], 1.0);
         ngrams.insert(vec![a, c, end], 1.0);
 
-        let gen = Generator::from_ngrams(symbol_table, ngrams, 3);
+        let gen = Generator::from_ngrams(symbol_table, ngrams);
 
         let mut rng = rand::thread_rng();
         let renderer = RenderU8 {
@@ -1442,7 +1511,7 @@ mod test {
         let mut ngrams: BTreeMap<Vec<SymbolTableEntryId>, f32> = BTreeMap::new();
         ngrams.insert(vec![a, a, a], 1.0);
         ngrams.insert(vec![a, b], 1.0);
-        let gen = Generator::from_ngrams(symbol_table, ngrams, 3);
+        let gen = Generator::from_ngrams(symbol_table, ngrams);
 
         let s = bincode::serialize(&gen).unwrap();
         let gen2: Generator<u8, f32> = bincode::deserialize(&s).unwrap();

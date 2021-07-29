@@ -1,3 +1,5 @@
+use std::iter;
+
 pub trait Sortable<T> {
     fn sorted(&self) -> Self;
 }
@@ -39,4 +41,15 @@ where
         None => vec![],
         Some(min) => s.iter().filter(|v| f(v) == min).cloned().collect(),
     }
+}
+
+pub fn pad<T>(n: usize, start_padding: T, end_padding: T, v: Vec<T>) -> Vec<T>
+where
+    T: Clone,
+{
+    iter::repeat(start_padding)
+        .take(n)
+        .chain(v.into_iter())
+        .chain(iter::repeat(end_padding).take(n))
+        .collect()
 }

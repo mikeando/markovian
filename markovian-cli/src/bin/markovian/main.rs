@@ -1,12 +1,13 @@
 #![feature(total_cmp)]
 
+use commands::generator;
 use log::{debug, info};
 use structopt::StructOpt;
 
-pub mod generator;
-pub mod simple;
-pub mod symboltable;
 pub mod utils;
+
+pub mod commands;
+pub mod modify;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "markovian", about = "Markov based name generator.")]
@@ -21,9 +22,7 @@ struct Opt {
 
 #[derive(Debug, StructOpt)]
 enum Command {
-    SymbolTable(symboltable::Command),
     Generator(generator::Command),
-    Simple(simple::Command),
     /// Show license information about markovian and the libraries it uses
     License,
 }
@@ -69,9 +68,7 @@ fn main() {
     info!("markovian! {:?}", opt);
 
     match &opt.cmd {
-        Command::SymbolTable(st_cmd) => symboltable::run(st_cmd),
         Command::Generator(gen_cmd) => generator::run(gen_cmd),
-        Command::Simple(cmd) => simple::run(cmd),
         Command::License => print_license_info(),
     }
 }

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use snafu::{ensure, Snafu};
+use snafu::{ensure, OptionExt, Snafu};
 
 use crate::vecutils::select_by_lowest_value;
 
@@ -20,13 +20,16 @@ pub enum Error {
     #[snafu(display("Invalid operation: {}", mesg))]
     InvalidOperation { mesg: String },
 
+    #[snafu(display("Non existent symbol"))]
+    NoSuchSymbol,
+
     #[snafu(display("Internal Error"))]
     InternalError,
 }
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Serialize, Deserialize, Hash)]
 pub struct SymbolTableEntryId(pub u64);
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
@@ -114,6 +117,14 @@ impl<T> SymbolTableEntry<T> {
             SymbolTableEntry::Single(_) => 1,
             SymbolTableEntry::Compound(ss) => ss.len(),
             _ => 0,
+        }
+    }
+    pub fn from_vec(mut s: Vec<T>) -> Self {
+        assert!(!s.is_empty());
+        if s.len() == 1 {
+            SymbolTableEntry::Single(s.swap_remove(0))
+        } else {
+            SymbolTableEntry::Compound(s)
         }
     }
 }
@@ -289,6 +300,13 @@ where
         Ok(id)
     }
 
+    pub fn add_symbols(&mut self, ss: Vec<Vec<T>>) -> Result<()> {
+        for s in ss {
+            self.add(SymbolTableEntry::from_vec(s))?;
+        }
+        Ok(())
+    }
+
     pub fn find(&self, value: &SymbolTableEntry<T>) -> Option<SymbolTableEntryId> {
         match value {
             SymbolTableEntry::Start => return Some(SymbolTableEntryId(0)),
@@ -307,7 +325,7 @@ where
         None
     }
 
-    // We don't actually remove the entry, just mark it as dead, so that we dont invalidate
+    // We don't actually remove the entry, just mark it as dead, so that we don't invalidate
     // existing ids.
     pub fn remove(&mut self, id: SymbolTableEntryId) -> Result<()> {
         ensure!(
@@ -351,10 +369,30 @@ where
         Ok(())
     }
 
-    // Remove all the dead entries. Potentially invalidating any exitsing ids.
-    pub fn compact(&mut self) {
+    // Remove all the dead entries. Potentially invalidating any existing ids.
+    pub fn compact(&mut self) -> Result<SymbolRemapper> {
         self.dead_chain_head = None;
         self.n_dead = 0;
+
+        // Build the list of moved ids
+        let mut moved_ids: BTreeMap<SymbolTableEntryId, SymbolTableEntryId> = BTreeMap::new();
+
+        moved_ids.insert(SymbolTableEntryId(0), SymbolTableEntryId(0));
+        moved_ids.insert(SymbolTableEntryId(1), SymbolTableEntryId(1));
+
+        let mut new_id: u64 = 2;
+        for (i, e) in self.index.iter().enumerate() {
+            match e {
+                SymbolTableEntry::Start => unreachable!("Start should never be in index"),
+                SymbolTableEntry::End => unreachable!("End should never be in index"),
+                SymbolTableEntry::Single(_) | SymbolTableEntry::Compound(_) => {
+                    moved_ids.insert(SymbolTableEntryId(new_id), SymbolTableEntryId(i as u64));
+                    new_id += 1;
+                }
+                SymbolTableEntry::Dead(_) => {}
+            }
+        }
+
         self.index
             .retain(|e| !matches!(e, SymbolTableEntry::Dead(_)));
 
@@ -364,8 +402,39 @@ where
                 self.by_first_character.entry(t).or_default().push(i);
             }
         }
+
+        Ok(SymbolRemapper { moved_ids })
     }
 
+    //Removes symbols and compresses the symbol table, but provides a way to map existing symbols to the new ones
+    pub fn remove_symbols_and_compress(&mut self, ss: Vec<Vec<T>>) -> Result<SymbolRemapper> {
+        for s in ss {
+            let entry = SymbolTableEntry::from_vec(s);
+            let eid = self.find(&entry).context(NoSuchSymbol)?;
+            self.remove(eid)?;
+        }
+        self.compact()
+    }
+}
+
+pub struct SymbolRemapper {
+    moved_ids: BTreeMap<SymbolTableEntryId, SymbolTableEntryId>,
+}
+
+impl SymbolRemapper {
+    pub fn map(&self, v: Vec<SymbolTableEntryId>) -> Option<Vec<SymbolTableEntryId>> {
+        v.iter().map(|s| self.map_one(s)).collect()
+    }
+
+    pub fn map_one(&self, id: &SymbolTableEntryId) -> Option<SymbolTableEntryId> {
+        self.moved_ids.get(id).cloned()
+    }
+}
+
+impl<T> SymbolTable<T>
+where
+    T: PartialEq + Ord + Clone + std::fmt::Debug,
+{
     //Panics if something is detected as "wrong"
     pub fn check_internal_consistency(&self) {
         // Check that there are no Start or Ends in the array
@@ -481,7 +550,7 @@ where
         let mut b: &[T] = v;
         let mut result: Vec<SymbolTableEntryId> = vec![];
         'outer: while !b.is_empty() {
-            // We dont need to consider START and END as they can never match
+            // We don't need to consider START and END as they can never match
             for (k, s) in self.index.iter().enumerate() {
                 if s.matches_start(b) {
                     b = &b[s.length()..];
@@ -572,8 +641,8 @@ where
 
         while !stack.is_empty() {
             let current_index = stack.len() as i32 - 1;
-            let (_parent_id, vistied, _symbol, rest) = stack[current_index as usize];
-            if vistied {
+            let (_parent_id, visited, _symbol, rest) = stack[current_index as usize];
+            if visited {
                 stack.pop();
             } else {
                 stack[current_index as usize].1 = true;
@@ -605,7 +674,7 @@ where
     }
 
     // Returns all symbol sequences SS such that
-    // render(SS).startswith(v) but !render(&SS[..SS.len()-1]).startswith(v)
+    // render(SS).starts_with(v) but !render(&SS[..SS.len()-1]).starts_with(v)
     // This means in practice that the last symbol of an allowed sequence can overhang the
     // end of v slightly. For example if our symbols are "ab" and "ac", "a"
     // then a prefix symbolification of "aba" will contain not just the exact match ["ab","a"],
@@ -614,7 +683,7 @@ where
     // symbolifications_prefix("aba") === [ ["ab", "ab"], ["ab","ac"], ["ab","a"]]
     //
     // The main reason for this is to help with generation of sequences that start with a
-    // prerfix.
+    // prefix.
     pub fn symbolifications_prefix(&self, v: &[T]) -> Vec<Vec<SymbolTableEntryId>>
     where
         T: Eq,
@@ -723,37 +792,6 @@ impl TableEncoding {
         match self {
             TableEncoding::Bytes => "u8",
             TableEncoding::String => "char",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SymbolTableWrapper {
-    Bytes(SymbolTable<u8>),
-    String(SymbolTable<char>),
-}
-
-impl SymbolTableWrapper {
-    pub fn encoding(&self) -> TableEncoding {
-        match self {
-            SymbolTableWrapper::Bytes(_) => TableEncoding::Bytes,
-            SymbolTableWrapper::String(_) => TableEncoding::String,
-        }
-    }
-
-    pub fn max_symbol_id(&self) -> usize {
-        match self {
-            SymbolTableWrapper::Bytes(table) => table.max_symbol_id(),
-            SymbolTableWrapper::String(table) => table.max_symbol_id(),
-        }
-    }
-
-    pub fn symbolifications(&self, s: &str) -> Vec<Vec<SymbolTableEntryId>> {
-        match self {
-            SymbolTableWrapper::Bytes(table) => table.symbolifications_str(s),
-            SymbolTableWrapper::String(table) => {
-                table.symbolifications(&s.chars().collect::<Vec<_>>())
-            }
         }
     }
 }

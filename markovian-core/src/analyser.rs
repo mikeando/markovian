@@ -2,13 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use crate::renderer::{SymbolIdRenderer, SymbolIdRendererChar, SymbolIdRendererU8};
-use crate::symbol::{
-    shortest_symbolifications,
-    SymbolTable,
-    SymbolTableEntry,
-    SymbolTableEntryId,
-    SymbolTableWrapper,
-};
+use crate::symbol::{shortest_symbolifications, SymbolTable, SymbolTableEntry, SymbolTableEntryId};
+use crate::symboltable_wrapper::SymbolTableWrapper;
 use crate::tombstone::{self, TombstoneList};
 use crate::vecutils::select_by_lowest_value;
 
@@ -252,8 +247,8 @@ where
             self.symbol_table.remove(*s).unwrap();
             let words_with_s = self.a.symbol_to_word_map.get(s);
             if let Some(words_with_s) = words_with_s {
-                for wordid in words_with_s {
-                    words_to_rebuild.insert(*wordid);
+                for word_id in words_with_s {
+                    words_to_rebuild.insert(*word_id);
                 }
             }
         }

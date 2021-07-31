@@ -100,6 +100,58 @@ pub fn symbolize_10as_trie(c: &mut Criterion) {
             symbolize_new2(black_box(to_symbolize_5as), black_box(&symbol_index));
         })
     });
+
+    let max_length = 40;
+    let mut fwd = FwdBacking::allocate(max_length);
+    let mut back = BackBacking::allocate(max_length);
+
+    let mut state = SymbolizeState {
+        forward: fwd.state(),
+        back: back.state(),
+    };
+    c.bench_function("symbolize 40a T3", |b| {
+        b.iter(|| {
+            symbolize_new3(
+                black_box(to_symbolize_40as),
+                black_box(&symbol_index),
+                &mut state,
+                |_| {},
+            );
+        })
+    });
+
+    c.bench_function("symbolize 20a T3", |b| {
+        b.iter(|| {
+            symbolize_new3(
+                black_box(to_symbolize_20as),
+                black_box(&symbol_index),
+                &mut state,
+                |_| {},
+            );
+        })
+    });
+
+    c.bench_function("symbolize 10a T3", |b| {
+        b.iter(|| {
+            symbolize_new3(
+                black_box(to_symbolize_10as),
+                black_box(&symbol_index),
+                &mut state,
+                |_| {},
+            );
+        })
+    });
+
+    c.bench_function("symbolize 5a T3", |b| {
+        b.iter(|| {
+            symbolize_new3(
+                black_box(to_symbolize_5as),
+                black_box(&symbol_index),
+                &mut state,
+                |_| {},
+            );
+        })
+    });
 }
 
 pub fn symbolize_as_old(c: &mut Criterion) {

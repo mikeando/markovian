@@ -6,6 +6,7 @@ pub mod generator_wrapper;
 pub mod num_basic;
 pub mod renderer;
 pub mod symbol;
+pub mod symbolize_new;
 pub mod symboltable_wrapper;
 pub mod tombstone;
 pub mod vecutils;

@@ -24,11 +24,11 @@ pub fn command_info(cmd: &InfoCommand) {
     match &generator {
         GeneratorWrapper::Bytes(gen) => {
             let renderer = renderer_for_u8_with_separator(&gen.symbol_table, ".");
-            print_info(&gen, &renderer);
+            print_info(gen, &renderer);
         }
         GeneratorWrapper::String(gen) => {
             let renderer = renderer_for_char_with_separator(&gen.symbol_table, ".");
-            print_info(&gen, &renderer);
+            print_info(gen, &renderer);
         }
     };
 }

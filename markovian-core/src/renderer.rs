@@ -66,7 +66,7 @@ impl<'a> SymbolIdRenderer for SymbolIdRendererU8<'a> {
                 //TODO: Handle this error?
                 Ok(String::from_utf8(part).unwrap())
             }
-            SymbolTableEntry::Compound(bs) => Ok(utf8_or_escaped(&bs)),
+            SymbolTableEntry::Compound(bs) => Ok(utf8_or_escaped(bs)),
             SymbolTableEntry::Dead(_) => Ok("✞".to_string()),
         }
     }
@@ -131,7 +131,7 @@ impl<'b> Renderer for RenderU8<'b> {
                     result.push(*e);
                 }
                 SymbolTableEntry::Compound(e) => {
-                    result.extend_from_slice(&e);
+                    result.extend_from_slice(e);
                 }
                 SymbolTableEntry::Dead(_) => panic!("DEAD"),
             }

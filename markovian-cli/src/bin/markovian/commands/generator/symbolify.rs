@@ -53,20 +53,20 @@ pub fn command_symbolify(cmd: &SymbolifyCommand) {
     } else {
         match (&symboltable, &cmd.symbol_separator) {
             (SymbolTableWrapper::Bytes(table), None) => Box::new(RenderU8 {
-                table: &table,
+                table,
                 start: b"^",
                 end: b"$",
             }),
             (SymbolTableWrapper::Bytes(table), Some(sep)) => {
-                Box::new(renderer_for_u8_with_separator(&table, &sep))
+                Box::new(renderer_for_u8_with_separator(table, sep))
             }
             (SymbolTableWrapper::String(table), None) => Box::new(RenderChar {
-                table: &table,
+                table,
                 start: "^",
                 end: "$",
             }),
             (SymbolTableWrapper::String(table), Some(sep)) => {
-                Box::new(renderer_for_char_with_separator(&table, &sep))
+                Box::new(renderer_for_char_with_separator(table, sep))
             }
         }
     };
@@ -111,7 +111,7 @@ pub fn command_symbolify(cmd: &SymbolifyCommand) {
         };
         let result = reprs
             .iter()
-            .map(|ids| renderer.render(&ids))
+            .map(|ids| renderer.render(ids))
             .collect::<Result<Vec<_>, _>>();
         match result {
             Ok(v) => {

@@ -106,7 +106,7 @@ where
             };
             for j in i..to_symbolize.len() {
                 let v = &to_symbolize[i..j + 1];
-                let q = symbol_index.contains(&v);
+                let q = symbol_index.contains(v);
                 match q {
                     ProgressiveIndexState::Present(symbol) => {
                         let symbol = *symbol;
@@ -488,7 +488,6 @@ impl<'a> BackState<'a> {
             self.cur_path[0] = (fs, 0);
             self.path_symbols[self.path_symbols.len() - 1] = pc[0].symbol;
             self.path_length = 1;
-            self.extend_initial(ps);
         } else {
             self.trim_saturated(ps);
             if self.path_length == 0 {
@@ -498,8 +497,8 @@ impl<'a> BackState<'a> {
             p.1 += 1;
             self.path_symbols[self.path_symbols.len() - self.path_length] =
                 ps.to_node(p.0)[p.1].symbol;
-            self.extend_initial(ps);
         }
+        self.extend_initial(ps);
         Some(&self.path_symbols[self.path_symbols.len() - self.path_length..])
     }
 }
@@ -531,7 +530,7 @@ pub fn symbolize_new3<T, I, F>(
                 for j in i..c {
                     let nj = SymbolizeNode(j + 1);
                     let v = &to_symbolize[i..j + 1];
-                    let q = symbol_index.contains(&v);
+                    let q = symbol_index.contains(v);
                     match q {
                         ProgressiveIndexState::Present(s) => {
                             fwd.maybe_add_path(ni, nj, *s, distance + 1).unwrap();

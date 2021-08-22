@@ -131,7 +131,7 @@ struct CommandImproveSymbolTableCallbacks {}
 
 impl ImproveSymbolTableCallbacks for CommandImproveSymbolTableCallbacks {
     fn on_init(&self, analyser: &AnalyserWrapper) {
-        print_analyser_summary(&analyser);
+        print_analyser_summary(analyser);
     }
 
     fn on_iteration_after_merge(
@@ -168,7 +168,7 @@ impl ImproveSymbolTableCallbacks for CommandImproveSymbolTableCallbacks {
     }
 
     fn on_end(&self, analyser: &AnalyserWrapper) {
-        print_analyser_summary(&analyser);
+        print_analyser_summary(analyser);
     }
 }
 

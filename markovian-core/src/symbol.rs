@@ -61,7 +61,7 @@ where
         }
         match self {
             SymbolTableEntry::Single(s) => v[0] == *s,
-            SymbolTableEntry::Compound(ss) => v.starts_with(&ss),
+            SymbolTableEntry::Compound(ss) => v.starts_with(ss),
             _ => false,
         }
     }
@@ -76,7 +76,7 @@ where
             SymbolTableEntry::Single(s) => v[0] == *s,
             SymbolTableEntry::Compound(ss) => {
                 if v.len() >= ss.len() {
-                    v.starts_with(&ss)
+                    v.starts_with(ss)
                 } else {
                     v == &ss[..v.len()]
                 }
@@ -93,7 +93,7 @@ where
             SymbolTableEntry::Single(s) => v.last().unwrap() == s,
             SymbolTableEntry::Compound(ss) => {
                 if v.len() >= ss.len() {
-                    v.ends_with(&ss)
+                    v.ends_with(ss)
                 } else {
                     v == &ss[(ss.len() - v.len())..]
                 }
@@ -741,7 +741,7 @@ where
                 Ok(())
             }
             SymbolTableEntry::Compound(es) => {
-                v.extend_from_slice(&es);
+                v.extend_from_slice(es);
                 Ok(())
             }
             SymbolTableEntry::Dead(_) => InvalidSymbolType {

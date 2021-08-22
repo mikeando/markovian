@@ -66,7 +66,7 @@ impl<'a> SymbolIdRenderer for SymbolIdRendererU8<'a> {
                 //TODO: Handle this error?
                 Ok(String::from_utf8(part).unwrap())
             }
-            SymbolTableEntry::Compound(bs) => Ok(utf8_or_escaped(&bs)),
+            SymbolTableEntry::Compound(bs) => Ok(utf8_or_escaped(bs)),
             SymbolTableEntry::Dead(_) => Ok("✞".to_string()),
         }
     }
@@ -131,7 +131,7 @@ impl<'b> Renderer for RenderU8<'b> {
                     result.push(*e);
                 }
                 SymbolTableEntry::Compound(e) => {
-                    result.extend_from_slice(&e);
+                    result.extend_from_slice(e);
                 }
                 SymbolTableEntry::Dead(_) => panic!("DEAD"),
             }
@@ -262,28 +262,28 @@ pub mod tests {
             end: b"$",
         };
 
-        let u: String = sr.render(&vec![])?;
+        let u: String = sr.render(&[])?;
         assert_eq!(u, "");
 
-        let u = sr.render(&vec![SymbolTableEntryId(123)]);
+        let u = sr.render(&[SymbolTableEntryId(123)]);
         assert!(matches!(
             u,
             Err(RenderError::InvalidSymbol(SymbolTableEntryId(123)))
         ));
 
-        let u: String = sr.render(&vec![c.start])?;
+        let u: String = sr.render(&[c.start])?;
         assert_eq!(u, "^");
 
-        let u: String = sr.render(&vec![c.end])?;
+        let u: String = sr.render(&[c.end])?;
         assert_eq!(u, "$");
 
-        let u: String = sr.render(&vec![c.a])?;
+        let u: String = sr.render(&[c.a])?;
         assert_eq!(u, "a");
 
-        let u: String = sr.render(&vec![c.xyz])?;
+        let u: String = sr.render(&[c.xyz])?;
         assert_eq!(u, "xyz");
 
-        let u: String = sr.render(&vec![c.start, c.a, c.xyz, c.end])?;
+        let u: String = sr.render(&[c.start, c.a, c.xyz, c.end])?;
         assert_eq!(u, "^axyz$");
 
         Ok(())

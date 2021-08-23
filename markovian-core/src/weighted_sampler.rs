@@ -44,7 +44,7 @@ where
         if self.total == D::zero() {
             return None;
         }
-        let mut v = rng.gen_range(D::zero(), self.total);
+        let mut v = rng.gen_range(D::zero()..self.total);
         for (s, c) in self.counts.iter() {
             if v < *c {
                 return Some(s.clone());

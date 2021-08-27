@@ -1,0 +1,108 @@
+1 town => town_x
+1 town => preword " " town_x
+1 preword => "new" | "old" | "north" | "south" | "east" | "west" | "upper" | "lower"
+1 town_x => descriptive_word " " settlement_type
+1 town_x => descriptive_word " " place_word
+1 town_x => descriptive_word common_suffix
+1 town_x => person_name "s " settlement_type
+1 town_x => person_name "s " place_word
+1 town_x => person_name common_suffix
+
+# Some tests fake this, so the file doesn't need to exist
+@import_list("city_types.txt" settlement_type)
+
+# Place words
+1 place_word => "acres"
+1 place_word => "basin"
+1 place_word => "bottom"
+1 place_word => "bridge"
+1 place_word => "corner"
+1 place_word => "crossing"
+1 place_word => "drift"
+1 place_word => "fell"
+1 place_word => "ferry"
+1 place_word => "flats"
+1 place_word => "ford"
+1 place_word => "gap"
+1 place_word => "garden"
+1 place_word => "gate"
+1 place_word => "grove"
+1 place_word => "heath"
+1 place_word => "harbour"
+1 place_word => "heights"
+1 place_word => "hole"
+1 place_word => "jetty"
+1 place_word => "landing"
+1 place_word => "lane"
+1 place_word => "meadow"
+1 place_word => "mound"
+1 place_word => "moor"
+1 place_word => "mouth"
+1 place_word => "nook"
+1 place_word => "notch"
+1 place_word => "orchard"
+1 place_word => "point"
+1 place_word => "ranch"
+1 place_word => "rim"
+1 place_word => "rise"
+1 place_word => "run"
+1 place_word => "wharf"
+1 place_word => "view"
+1 place_word => "vineyard"
+1 place_word => "vista"
+
+# Suffixes
+1 common_suffix => "bar"
+1 common_suffix => "bee"
+1 common_suffix => "berg"
+1 common_suffix => "berry"
+1 common_suffix => "boro"
+1 common_suffix => "burg"
+1 common_suffix => "bugrh"
+1 common_suffix => "bury"
+1 common_suffix => "by"
+1 common_suffix => "cester"
+1 common_suffix => "chase"
+1 common_suffix => "chester"
+1 common_suffix => "cross"
+1 common_suffix => "don"
+1 common_suffix => "ham"
+1 common_suffix => "haven"
+1 common_suffix => "kirk"
+1 common_suffix => "lea"
+1 common_suffix => "ly"
+1 common_suffix => "mar"
+1 common_suffix => "mead"
+1 common_suffix => "meade"
+1 common_suffix => "mer"
+1 common_suffix => "mont"
+1 common_suffix => "more"
+1 common_suffix => "moore"
+1 common_suffix => "rose"
+1 common_suffix => "rise"
+1 common_suffix => "side"
+1 common_suffix => "ton"
+1 common_suffix => "ville"
+1 common_suffix => "wall"
+1 common_suffix => "way"
+1 common_suffix => "wick"
+1 common_suffix => "which"
+1 common_suffix => "worth"
+
+# Names
+# TODO: Add more names
+1 person_name => "jim"
+
+# Descriptive words
+# TODO: Add more descriptive terms
+# TODO: Add geographical features
+# TODO: Add weather
+# TODO: Add colors
+# TODO: Add air_quality
+# TODO: Add royalty
+# TODO: Add religion
+# TODO: Add animals
+# TODO: Add quality (good grand messy)
+# TODO: Add jobs
+# TODO: Add seasons
+1 descriptive_word => "pink"

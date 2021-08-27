@@ -145,6 +145,7 @@ dependencies = [
  "markovian_core",
  "rand",
  "serde",
+ "snafu",
  "structopt",
 ]
 

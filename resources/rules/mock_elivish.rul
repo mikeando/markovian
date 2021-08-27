@@ -1,0 +1,10 @@
+1 V_ => "a" | "e" | "i" |  "o" | "u"
+1 V => V_ | V_ "y"
+1 C => "r" | "n" | "f" | "k" | "l" | "c"
+1 VTRIP => V_ C V
+1 CTRIP => C V_ C
+1 TRIP => VTRIP | CTRIP
+1 ST => V_ C
+1 A => TRIP "-" TRIP
+1 A => ST "-" TRIP
+1 A => CTRIP CTRIP V C " the " ST TRIP

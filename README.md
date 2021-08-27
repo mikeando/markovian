@@ -272,6 +272,99 @@ I would claim that the results from the 50, 100 and 150 columns are
 in general better names than those from the None column.
 But I'm not sure that I could quantify this in any meaningful way.
 
+
+# Grammar based generation
+
+Markovian has an aditional method for generating text - based on grammars.
+
+To run it you use
+
+```
+markovian grammar --rules-file file.rul --start-token TOKEN
+```
+
+if `FantasyNovel.rul` contained
+
+```
+2 TITLE => "A " THING " of " ATTRIBUTE " and " ATTRIBUTE
+1 TITLE => ATRIBUTE THING
+1 THING => "Throne" | "Queen" | "King" | "Prince" | "Dance" | "House" | "Family"
+1 ATTRIBUTE => "Fire" | "Ice" | "Death" | "Hope"
+```
+
+Then using `TITLE` as the token would general something like: "Fire Queen", "A
+House of Fire and Fire" or "A Family of Death and Hope".
+
+Note that the `--rules-file` is relative to the `--library-directory`, which
+defaults to `.`.
+
+This can be used for word generation - for example `mock_elvish.rul` uses a
+structure based on triples of vowel-consonant-vowel or consonant-vowel-consonant
+treating 'ay', 'ey' as vowels.
+
+```
+1 V_ => "a" | "e" | "i" |  "o" | "u"
+1 V => V_ | V_ "y"
+1 C => "r" | "n" | "f" | "k" | "l" | "c"
+1 VTRIP => V_ C V
+1 CTRIP => C V_ C
+1 TRIP => VTRIP | CTRIP
+1 ST => V_ C
+1 A => TRIP TRIP
+1 A => ST TRIP
+1 A => CTRIP CTRIP V C " the " ST TRIP
+```
+
+This generates names like "cencorik the elerey", "feflar", "enfun". These are
+admittedly pretty bad, but with some tuning of the language should be able to
+produce something useful.
+
+## Including other files into grammars
+
+Lists of values can be imported as symbols, the example in `resources/fantasy_character/main.rul`
+
+```
+1 NAME => "The " PREFIX_ADJ " " TYPE " of the " SUFFIX
+1 NAME => "A " TYPE " of the " PLACE
+1 PLACE => PREFIX_ADJ " " SUFFIX
+@import_list( "prefix_adj.txt" PREFIX_ADJ )
+@import_list( "type.txt" TYPE )
+@import_list( "suffix_noun.txt" SUFFIX )
+```
+
+```
+> markovian grammar \
+   --rules-file main.rul \
+   --start-token NAME \
+   --library-directory resources/rules/fantasy_character/
+A Sorceress of the Black Shadows
+...
+The White Knight of the Desert
+```
+
+Other rule files can be imported too.
+
+```
+@import_language( "main.rul" )
+1 ACTION => NAME " fought " NAME
+1 ACTION => NAME " married " NAME
+1 ACTION => NAME " ruled " PLACE
+
+# A rule fil can have empty lines
+# and lines starting with `#` are
+# comments
+
+# We can add to rules defined in other
+# files
+1 NAME => "John"
+1 NAME => "Jane"
+1 TYPE => "Clown"
+```
+
+This might generate "A Sorceress of the Black Shadows fought The White Knight of
+the Desert", or "John married The Dark Clown of the East", or "Jane ruled Red
+South". (Yep, you need to be pretty careful or you'll sometimes get nonsense)
+
 # 3rd party components
 
 Building an application often uses a lot of third-party parts.

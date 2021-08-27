@@ -1,0 +1,4 @@
+2 TITLE => "A " THING " of " ATTRIBUTE " and " ATTRIBUTE
+1 TITLE => ATTRIBUTE " "THING
+1 THING => "Throne" | "Queen" | "King" | "Prince" | "Dance" | "House" | "Family"
+1 ATTRIBUTE => "Fire" | "Ice" | "Death" | "Hope"

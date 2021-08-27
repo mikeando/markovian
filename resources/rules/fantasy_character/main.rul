@@ -1,0 +1,6 @@
+1 NAME => "The " PREFIX_ADJ " " TYPE " of the " SUFFIX
+1 NAME => "A " TYPE " of the " PLACE
+1 PLACE => PREFIX_ADJ " " SUFFIX
+@import_list( "prefix_adj.txt" PREFIX_ADJ )
+@import_list( "type.txt" TYPE )
+@import_list( "suffix_noun.txt" SUFFIX )
